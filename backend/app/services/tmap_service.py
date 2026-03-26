@@ -8,6 +8,7 @@
 """
 
 import logging
+import time
 from typing import Any
 
 import httpx
@@ -22,6 +23,14 @@ _HEADERS = {
     "Content-Type": "application/json",
     "Accept": "application/json",
 }
+
+# ── 인메모리 캐시 ────────────────────────────────────────────────────────────
+# 동일 좌표·차량 제원 조합은 TTL 이내에 API 재호출 없이 캐시를 반환합니다.
+# trafficInfo="Y" 를 사용하므로 교통 정보가 변할 수 있어 TTL을 10분으로 제한합니다.
+# key: (start_lat, start_lon, end_lat, end_lon, height, weight, length, width)
+# value: (result_dict, cached_timestamp)
+_route_cache: dict[tuple, tuple[dict[str, Any], float]] = {}
+_CACHE_TTL = 600  # 10분 (초)
 
 
 async def get_route(
@@ -47,6 +56,18 @@ async def get_route(
 
         {"duration_min": float, "distance_km": float, "polyline": [...]}
     """
+    # ── 캐시 조회 ──────────────────────────────────────────────────────────────
+    cache_key = (
+        round(start_lat, 5), round(start_lon, 5),
+        round(end_lat, 5),   round(end_lon, 5),
+        vehicle_height, vehicle_weight, vehicle_length, vehicle_width,
+    )
+    cached = _route_cache.get(cache_key)
+    if cached is not None:
+        result, ts = cached
+        if time.time() - ts < _CACHE_TTL:
+            return result
+
     payload: dict[str, Any] = {
         "startX": str(start_lon),
         "startY": str(start_lat),
@@ -93,7 +114,10 @@ async def get_route(
         distance_km = 0.0
         polyline = []
 
-    return {"duration_min": duration_min, "distance_km": distance_km, "polyline": polyline}
+    # ── 캐시 저장 후 반환 ────────────────────────────────────────────────────────
+    result = {"duration_min": duration_min, "distance_km": distance_km, "polyline": polyline}
+    _route_cache[cache_key] = (result, time.time())
+    return result
 
 
 async def search_poi(keyword: str, count: int = 10) -> list[dict[str, Any]]:

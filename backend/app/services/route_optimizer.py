@@ -64,21 +64,27 @@ def _detour_m(a: dict, r: dict, b: dict) -> float:
 
 # ── 시간 행렬 구성 ─────────────────────────────────────────────────────────────
 
-async def build_time_matrix(
+async def build_matrices(
     nodes: list[dict],
     vehicle_height: float | None = None,
     vehicle_weight: float | None = None,
     vehicle_length: float | None = None,
     vehicle_width: float | None = None,
-) -> list[list[int]]:
-    """TMAP 화물차 경로 API로 모든 노드 쌍의 소요 시간(초) 행렬을 비동기로 구성합니다.
+) -> tuple[list[list[int]], list[list[float]]]:
+    """TMAP 화물차 경로 API로 모든 노드 쌍의 소요 시간(초)·거리(km) 행렬을 비동기로 구성합니다.
 
     차량 제원(높이·중량·길이·폭)을 전달하면 통행 제한 도로를 자동 우회합니다.
     API 호출 실패 시 Haversine 추정값으로 fallback 합니다.
     동시 요청 수는 Semaphore 4개로 제한합니다 (TMAP 레이트 리밋 대응).
+
+    Returns:
+        (time_matrix, dist_matrix) 튜플.
+        time_matrix[i][j]: i→j 소요 시간(초).
+        dist_matrix[i][j]: i→j 거리(km).
     """
     n = len(nodes)
-    matrix: list[list[int]] = [[0] * n for _ in range(n)]
+    time_matrix: list[list[int]]   = [[0]   * n for _ in range(n)]
+    dist_matrix: list[list[float]] = [[0.0] * n for _ in range(n)]
     sem = asyncio.Semaphore(4)
 
     async def _fetch(i: int, j: int) -> None:
@@ -94,15 +100,20 @@ async def build_time_matrix(
                     vehicle_length=vehicle_length,
                     vehicle_width=vehicle_width,
                 )
-                matrix[i][j] = max(1, int(result["duration_min"] * 60))
+                time_matrix[i][j] = max(1, int(result["duration_min"] * 60))
+                dist_matrix[i][j] = result["distance_km"]
             except Exception:
-                matrix[i][j] = haversine_sec(
+                time_matrix[i][j] = haversine_sec(
                     nodes[i]["lat"], nodes[i]["lon"],
                     nodes[j]["lat"], nodes[j]["lon"],
                 )
+                dist_matrix[i][j] = haversine_m(
+                    nodes[i]["lat"], nodes[i]["lon"],
+                    nodes[j]["lat"], nodes[j]["lon"],
+                ) / 1000
 
     await asyncio.gather(*[_fetch(i, j) for i in range(n) for j in range(n) if i != j])
-    return matrix
+    return time_matrix, dist_matrix
 
 
 # ── OR-Tools TSP 솔버 ─────────────────────────────────────────────────────────
@@ -322,34 +333,48 @@ async def optimize_route(
 
     # ── 1. 필수 노드 목록 구성 ────────────────────────────────────────────────
     # 인덱스 0 = 출발, 1..m = 경유, m+1 = 도착
+    # _req_idx: time_matrix/dist_matrix에서 해당 노드의 행/열 인덱스.
+    #           insert_rest_stops 이후 final_nodes에서도 보존되므로
+    #           5단계에서 행렬 직접 조회에 사용합니다.
     required: list[dict] = [
-        {**origin, "type": "origin"},
-        *[{**w, "type": "waypoint"} for w in merged_waypoints],
-        {**final_destination, "type": "destination"},
+        {**origin, "type": "origin", "_req_idx": 0},
+        *[{**w, "type": "waypoint", "_req_idx": i + 1} for i, w in enumerate(merged_waypoints)],
+        {**final_destination, "type": "destination", "_req_idx": len(merged_waypoints) + 1},
     ]
     n = len(required)
 
-    # ── 2. 시간 행렬 구성 ─────────────────────────────────────────────────────
-    matrix = await build_time_matrix(
-        required,
-        vehicle_height=vehicle_height,
-        vehicle_weight=vehicle_weight,
-        vehicle_length=vehicle_length,
-        vehicle_width=vehicle_width,
-    )
-
-    # ── 3. TSP 최적화 (경유지 순서 결정) ─────────────────────────────────────
+    # ── 2. 시간·거리 행렬 구성 ────────────────────────────────────────────────
+    # 경유지가 없으면(n≤2) API 호출 없이 Haversine으로만 행렬을 구성합니다.
+    # 소요 시간 행렬은 법정 휴게 삽입에 사용하며, dist_matrix는 5단계에서 재사용합니다.
     if n <= 2:
-        # 경유지 없음 — 직통
+        # 경유지 없음 — API 불필요, Haversine 추정으로 time_matrix만 구성
         tsp_order = list(range(n))
+        time_matrix: list[list[int]] = [[0] * n for _ in range(n)]
+        for i in range(n):
+            for j in range(n):
+                if i != j:
+                    time_matrix[i][j] = haversine_sec(
+                        required[i]["lat"], required[i]["lon"],
+                        required[j]["lat"], required[j]["lon"],
+                    )
+        dist_matrix: list[list[float]] | None = None  # 5단계에서 API 1회 호출
     else:
-        tsp_order = solve_tsp(matrix, start=0, end=n - 1)
+        time_matrix, dist_matrix = await build_matrices(
+            required,
+            vehicle_height=vehicle_height,
+            vehicle_weight=vehicle_weight,
+            vehicle_length=vehicle_length,
+            vehicle_width=vehicle_width,
+        )
+
+        # ── 3. TSP 최적화 (경유지 순서 결정) ─────────────────────────────────────
+        tsp_order = solve_tsp(time_matrix, start=0, end=n - 1)
 
     ordered_nodes = [required[i] for i in tsp_order]
 
     # ── 4. 법정 휴게 노드 삽입 ────────────────────────────────────────────────
     final_nodes = insert_rest_stops(
-        ordered_nodes, matrix, tsp_order, merged_rest_stops,
+        ordered_nodes, time_matrix, tsp_order, merged_rest_stops,
         initial_drive_sec=initial_drive_sec,
     )
 
@@ -372,6 +397,14 @@ async def optimize_route(
             # 휴게소 → 다음 노드 구간: Haversine 추정 (TMAP 재호출 최소화)
             secs = haversine_sec(prev["lat"], prev["lon"], curr["lat"], curr["lon"])
             dist_km = haversine_m(prev["lat"], prev["lon"], curr["lat"], curr["lon"]) / 1000
+        elif (
+            dist_matrix is not None
+            and "_req_idx" in prev and "_req_idx" in curr
+        ):
+            # 2단계에서 이미 조회한 행렬 재사용 — TMAP 재호출 없음
+            pi, ci = prev["_req_idx"], curr["_req_idx"]
+            secs = time_matrix[pi][ci]
+            dist_km = dist_matrix[pi][ci]
         else:
             try:
                 r = await get_route(

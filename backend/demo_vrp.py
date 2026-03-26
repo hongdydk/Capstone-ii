@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from app.services.route_optimizer import (
     MAX_DRIVE_SEC,
     MIN_REST_SEC,
-    build_time_matrix,
+    build_matrices,
     haversine_m,
     haversine_sec,
     insert_rest_stops,
@@ -86,7 +86,7 @@ async def run_demo() -> None:
     # ── 1. 시간 행렬 구성 ─────────────────────────────────────────────────────
     if using_tmap:
         print("[1] TMAP 화물차 경로 API로 시간 행렬 구성 중... (n×n = %d회 호출)" % (n * (n - 1)))
-        matrix = await build_time_matrix(
+        matrix, _ = await build_matrices(
             all_nodes,
             vehicle_height=TRUCK["height"],
             vehicle_weight=TRUCK["weight"],

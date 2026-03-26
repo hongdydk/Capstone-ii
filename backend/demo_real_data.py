@@ -33,7 +33,7 @@ from app.services.route_optimizer import (
     MAX_DRIVE_SEC,
     MIN_REST_SEC,
     REST_PLAN_SEC,
-    build_time_matrix,
+    build_matrices,
     haversine_m,
     haversine_sec,
     insert_rest_stops,
@@ -172,7 +172,7 @@ async def run(n_waypoints: int, seed: int | None) -> None:
     # 5. 시간 행렬 (TMAP 화물차 API)
     n = len(nodes)
     print(f"[2] TMAP 화물차 경로 API 시간 행렬 구성... ({n}×{n-1}={n*(n-1)}회 호출)")
-    matrix = await build_time_matrix(
+    matrix, _ = await build_matrices(
         nodes,
         vehicle_height=TRUCK["height"],
         vehicle_weight=TRUCK["weight"],

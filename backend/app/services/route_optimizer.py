@@ -62,6 +62,26 @@ def _detour_m(a: dict, r: dict, b: dict) -> float:
     )
 
 
+_SEOUL_LAT, _SEOUL_LON = 37.5665, 126.9780  # 서울 기준 좌표
+_DIR_THRESHOLD_M = 30_000                    # 방향 판정 최소 거리 차이 (30 km)
+
+
+def _vehicle_direction(origin: dict, destination: dict) -> str | None:
+    """origin → destination 이동 방향을 서울 기준 거리 차이로 판정합니다.
+
+    Returns:
+        "상행": 서울을 향해 접근 (서울과의 거리가 줄어듦)
+        "하행": 서울에서 멀어짐
+        None  : 거리 차이가 threshold 미만 → 방향 불분명 (수도권 단거리 등)
+    """
+    d_origin = haversine_m(origin["lat"], origin["lon"], _SEOUL_LAT, _SEOUL_LON)
+    d_dest   = haversine_m(destination["lat"], destination["lon"], _SEOUL_LAT, _SEOUL_LON)
+    diff = d_origin - d_dest  # 양수 = 서울에 가까워짐 = 상행
+    if abs(diff) < _DIR_THRESHOLD_M:
+        return None
+    return "상행" if diff > 0 else "하행"
+
+
 # ── 시간 행렬 구성 ─────────────────────────────────────────────────────────────
 
 async def build_time_matrix(
@@ -70,10 +90,12 @@ async def build_time_matrix(
     vehicle_weight: float | None = None,
     vehicle_length: float | None = None,
     vehicle_width: float | None = None,
+    departure_time: str | None = None,
 ) -> list[list[int]]:
     """TMAP 화물차 경로 API로 모든 노드 쌍의 소요 시간(초) 행렬을 비동기로 구성합니다.
 
     차량 제원(높이·중량·길이·폭)을 전달하면 통행 제한 도로를 자동 우회합니다.
+    departure_time(ISO-8601)을 전달하면 타임머신 예측 교통 API를 사용합니다.
     API 호출 실패 시 Haversine 추정값으로 fallback 합니다.
     동시 요청 수는 Semaphore 4개로 제한합니다 (TMAP 레이트 리밋 대응).
     """
@@ -93,6 +115,7 @@ async def build_time_matrix(
                     vehicle_weight=vehicle_weight,
                     vehicle_length=vehicle_length,
                     vehicle_width=vehicle_width,
+                    departure_time=departure_time,
                 )
                 matrix[i][j] = max(1, int(result["duration_min"] * 60))
             except Exception:
@@ -255,6 +278,7 @@ async def optimize_route(
     vehicle_width: float | None = None,
     initial_drive_sec: int = 0,
     extra_stops: list[dict[str, Any]] | None = None,
+    departure_time: str | None = None,
 ) -> tuple[list[RouteNode], float, float]:
     """경로 최적화 메인 함수.
 
@@ -275,6 +299,8 @@ async def optimize_route(
                                                        원래 destination 은 waypoints 로 편입.
                                                        여러 개면 마지막이 최종, 나머지는 waypoints.
                            stop_type="rest_preferred" → 휴게소 후보 목록 맨 앞에 추가.
+        departure_time:    출발 예정 시각 (ISO-8601). trip.departure_time 에서 전달됨.
+                           값이 있으면 타임머신 예측 교통 API를 사용합니다.
 
     Returns:
         (route_nodes, total_distance_km, estimated_duration_min)
@@ -320,6 +346,16 @@ async def optimize_route(
         for s in preferred_rest
     ] + list(rest_stops)
 
+    # ── 방향 필터: 이동 방향이 명확하면 반대 방향 쉼터 제외 ─────────────────
+    # direction=None(미분류/양방향)은 항상 포함, preferred_rest 는 이미 direction 없음
+    vehicle_dir = _vehicle_direction(origin, final_destination)
+    if vehicle_dir is not None:
+        merged_rest_stops = [
+            r for r in merged_rest_stops
+            if r.get("direction") is None or r.get("direction") == vehicle_dir
+        ]
+        logger.debug("방향 필터: %s → 쉼터 후보 %d개", vehicle_dir, len(merged_rest_stops))
+
     # ── 1. 필수 노드 목록 구성 ────────────────────────────────────────────────
     # 인덱스 0 = 출발, 1..m = 경유, m+1 = 도착
     required: list[dict] = [
@@ -336,6 +372,7 @@ async def optimize_route(
         vehicle_weight=vehicle_weight,
         vehicle_length=vehicle_length,
         vehicle_width=vehicle_width,
+        departure_time=departure_time,
     )
 
     # ── 3. TSP 최적화 (경유지 순서 결정) ─────────────────────────────────────

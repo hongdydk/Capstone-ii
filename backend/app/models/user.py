@@ -7,8 +7,9 @@ from .base import Base, TimestampMixin
 
 
 class UserRole(str, enum.Enum):
-    ADMIN = "admin"
-    DRIVER = "driver"
+    ADMIN       = "admin"
+    DRIVER      = "driver"
+    CONTRACTOR  = "contractor"   # 지입기사 — 본인 Trip 직접 생성 가능, 소속 회사에 위치 공유
 
 
 class User(TimestampMixin, Base):

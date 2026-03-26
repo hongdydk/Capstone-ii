@@ -40,11 +40,10 @@ async def _load_rest_stops(db) -> list[dict]:
 
 @router.post("/", response_model=OptimizeResponse)
 async def run_optimization(body: OptimizeRequest, db: DbDep) -> dict:
-    """관리자 배차 — 단일 차량 경로 최적화.
+    """기사 출발 — 단일 차량 경로 최적화.
 
-    차고지(origin)에서 출발하여 모든 경유지를 최적 순서로 방문하고
-    법정 휴게소를 삽입한 전체 경로를 반환합니다.
-    운전자가 이미 운행 중인 상태라면 initial_drive_sec 을 전달하세요.
+    기사가 현재 위치(출발지)를 전달하면 trip에 저장된 경유지·목적지·차량 제원으로
+    최적 동선을 계산하고 법정 휴게소를 삽입합니다.
     """
     t_result = await db.execute(select(Trip).where(Trip.id == body.trip_id))
     trip = t_result.scalar_one_or_none()
@@ -52,25 +51,43 @@ async def run_optimization(body: OptimizeRequest, db: DbDep) -> dict:
         raise HTTPException(status_code=404, detail="운행을 찾을 수 없습니다.")
 
     rest_stops = await _load_rest_stops(db)
+
+    # 출발지: 기사가 전달한 현재 위치
     origin = {"lat": body.origin_lat, "lon": body.origin_lon, "name": body.origin_name}
-    destination = {"lat": body.dest_lat, "lon": body.dest_lon, "name": body.dest_name}
+
+    # 목적지·경유지: trip에 저장된 관리자 설정값
+    destination = {"lat": trip.dest_lat, "lon": trip.dest_lon, "name": trip.dest_name}
+    waypoints = trip.waypoints or []
+
+    # 차량 제원: 요청 override → trip 저장값 순으로 사용
+    vehicle_height = body.vehicle_height_m or trip.vehicle_height_m
+    vehicle_weight = body.vehicle_weight_kg or trip.vehicle_weight_kg
+    vehicle_length = body.vehicle_length_cm or trip.vehicle_length_cm
+    vehicle_width  = body.vehicle_width_cm  or trip.vehicle_width_cm
 
     route_nodes, dist_km, dur_min = await optimize_route(
         origin=origin,
         destination=destination,
-        waypoints=body.waypoints,
+        waypoints=waypoints,
         rest_stops=rest_stops,
-        vehicle_height=body.vehicle_height_m,
-        vehicle_weight=body.vehicle_weight_kg,
-        vehicle_length=body.vehicle_length_cm,
-        vehicle_width=body.vehicle_width_cm,
+        vehicle_height=vehicle_height,
+        vehicle_weight=vehicle_weight,
+        vehicle_length=vehicle_length,
+        vehicle_width=vehicle_width,
         initial_drive_sec=body.initial_drive_sec,
         extra_stops=[s.model_dump() for s in body.extra_stops],
+        departure_time=trip.departure_time,
     )
 
     route_json = [n.model_dump() for n in route_nodes]
+    # 기사의 출발지와 최적 경로를 trip에 저장
     await db.execute(
-        update(Trip).where(Trip.id == body.trip_id).values(optimized_route=route_json)
+        update(Trip).where(Trip.id == body.trip_id).values(
+            optimized_route=route_json,
+            origin_name=body.origin_name,
+            origin_lat=body.origin_lat,
+            origin_lon=body.origin_lon,
+        )
     )
     await db.commit()
 

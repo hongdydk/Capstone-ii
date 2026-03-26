@@ -1,0 +1,474 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<title>simpleMap</title>
+<script src="https://code.jquery.com/jquery-3.2.1.min.js"></script>
+<script
+	src="https://apis.openapi.sk.com/tmap/jsv2?version=1&appKey=발급받은 Appkey"></script>
+<script type="text/javascript">
+	var map, marker_s, marker_e, marker_p;
+	var drawInfoArr = [];
+	var resultMarkerArr = [];
+	var resultdrawArr = [];
+	function initTmap() {
+
+		// 1. 지도 띄우기
+		map = new Tmapv2.Map("map_div", {
+			center : new Tmapv2.LatLng(37.56259379, 126.99243652),
+			width : "100%",
+			height : "400px",
+			zoom : 16,
+			zoomControl : true,
+			scrollwheel : true
+		});
+
+		// 2. 시작, 도착 심볼찍기
+		// 시작
+		marker_s = new Tmapv2.Marker(
+				{
+					position : new Tmapv2.LatLng(37.565618731809884,126.98709296608011),
+					icon : "/upload/tmap/marker/pin_r_m_s.png",
+					iconSize : new Tmapv2.Size(24, 38),
+					map : map
+				});
+
+		// 도착
+		marker_e = new Tmapv2.Marker(
+				{
+					position : new Tmapv2.LatLng(37.561590999574236,126.99696349525492),
+					icon : "/upload/tmap/marker/pin_r_m_e.png",
+					iconSize : new Tmapv2.Size(24, 38),
+					map : map
+				});
+
+		// 3. 경유지 심볼 찍기
+		marker_p = new Tmapv2.Marker(
+				{
+					position : new Tmapv2.LatLng(37.56423082164344,126.99231147193949),
+					icon : "/upload/tmap/marker/pin_b_m_p.png",
+					iconSize : new Tmapv2.Size(24, 38),
+					map : map
+				});
+		
+		marker_p = new Tmapv2.Marker(
+				{
+					position : new Tmapv2.LatLng(37.562543523478475,126.99287795448343),
+					icon : "/upload/tmap/marker/pin_b_m_p.png",
+					iconSize : new Tmapv2.Size(24, 38),
+					map : map
+				});
+
+		// 4. 경로탐색 API 사용요청
+		var routeLayer;
+		$("#btn_select")
+				.click(
+						function() {
+
+							if (routeLayer) {
+								map.removeLayer(routeLayer);
+							}
+
+							var predictionType = $(
+									':radio[name="time_toggle"]:checked').val();
+
+							var year = $("#year").val();
+							var month = $("#month").val();
+							var day = $("#day").val();
+							var hour = $("#hour").val();
+							var min = $("#min").val();
+							var predictionTime = year + "-" + month + "-" + day
+									+ "T" + hour + ":" + min + ":00+0900";
+
+							var searchOption = $("#selectLevel").val();
+
+							var headers = {};
+							headers["appKey"] = "발급AppKey";
+							headers["Content-Type"] = "application/json";
+
+							var urlStr = "https://apis.openapi.sk.com/tmap/routes/prediction?version=1&reqCoordType=WGS84GEO&resCoordType=EPSG3857&format=json";
+
+							var params = JSON.stringify({
+								"routesInfo" : {
+									"departure" : {
+										"name" : "test1",
+										"lon" : "126.98709296608011",
+										"lat" : "37.565618731809884"
+									},
+									"destination" : {
+										"name" : "test2",
+										"lon" : "126.99696349525492",
+										"lat" : "37.561590999574236"
+									},
+									"predictionType" : predictionType,
+									"predictionTime" : String(predictionTime),
+									"wayPoints" : {
+										"wayPoint" : [ {
+											"lon" : "126.99231147193949",
+											"lat" : "37.56423082164344"
+										}, {
+											"lon" : "126.99287795448343",
+											"lat" : "37.562543523478475"
+										} ]
+									},
+									"searchOption" : String(searchOption)
+								}
+							});
+							$
+									.ajax({
+										method : "POST",
+										url : urlStr,
+										headers : headers,
+										async : false,
+										data : params,
+										success : function(response) {
+											var resultData = response.features;
+
+											var resultProperties = resultData[0].properties;
+
+											var innerHtml = "";
+
+											var tDistance = "총 거리 : "
+													+ (resultProperties.totalDistance/1000).toFixed(1)
+													+ "km, ";
+											var tTime = "총 시간 : "
+													+ (resultProperties.totalTime/60).toFixed(0)
+													+ "분, ";
+											var tFare = "총 요금 : "
+													+ resultProperties.totalFare
+													+ "원, ";
+											var taxiFare = "예상 택시 요금 : "
+													+ resultProperties.taxiFare
+													+ "원";
+
+											$("#result").text(
+													tDistance + tTime + tFare
+															+ taxiFare);
+
+											//기존 그려진 라인 & 마커가 있다면 초기화
+											if (resultdrawArr.length > 0) {
+												for ( var i in resultdrawArr) {
+													resultdrawArr[i]
+															.setMap(null);
+												}
+												resultdrawArr = [];
+											}
+
+											if (resultMarkerArr.length > 0) {
+												for ( var i in resultMarkerArr) {
+													resultMarkerArr[i]
+															.setMap(null);
+												}
+												resultMarkerArr = [];
+											}
+											
+											drawInfoArr = [];
+											var lineYn = false;
+
+											//그리기
+											//for문 [S]
+											for ( var i in resultData) {
+												var geometry = resultData[i].geometry;
+												var properties = resultData[i].properties;
+
+												if (geometry.type == "LineString") {
+													for ( var j in geometry.coordinates) {
+														// 경로들의 결과값들을 포인트 객체로 변환 
+														var latlng = new Tmapv2.Point(
+																geometry.coordinates[j][0],
+																geometry.coordinates[j][1]);
+														// 포인트 객체를 받아 좌표값으로 변환
+														var convertPoint = new Tmapv2.Projection.convertEPSG3857ToWGS84GEO(
+																latlng);
+														// 포인트객체의 정보로 좌표값 변환 객체로 저장
+														var convertChange = new Tmapv2.LatLng(
+																convertPoint._lat,
+																convertPoint._lng);
+														// 배열에 담기
+														if(lineYn){
+							                                    drawInfoArr.push(convertChange);
+							                                }
+													}
+												} else {
+													
+													if(properties.pointType == "S" || properties.pointType == "E" || properties.pointType == "N" ){
+						                                 lineYn = true;
+						                            }else{
+						                            	 lineYn = false;
+						                            }
+
+													var markerImg = "";
+													var pType = "";
+
+													if (properties.pointType == "S") { //출발지 마커
+														markerImg = "/upload/tmap/marker/pin_r_m_s.png";
+														pType = "S";
+													} else if (properties.pointType == "E") { //도착지 마커
+														markerImg = "/upload/tmap/marker/pin_r_m_e.png";
+														pType = "E";
+													} else { //각 포인트 마커
+														markerImg = "http://topopen.tmap.co.kr/imgs/point.png";
+														pType = "P"
+													}
+
+													// 경로들의 결과값들을 포인트 객체로 변환 
+													var latlon = new Tmapv2.Point(
+															geometry.coordinates[0],
+															geometry.coordinates[1]);
+													// 포인트 객체를 받아 좌표값으로 다시 변환
+													var convertPoint = new Tmapv2.Projection.convertEPSG3857ToWGS84GEO(
+															latlon);
+
+													var routeInfoObj = {
+														markerImage : markerImg,
+														lng : convertPoint._lng,
+														lat : convertPoint._lat,
+														pointType : pType
+													};
+
+													// Marker 추가
+													addMarkers(routeInfoObj);
+												}
+											}//for문 [E]
+											drawLine(drawInfoArr);
+										}
+									});
+
+						});
+
+	}
+
+	function pad(n, width) {
+		n = n + '';
+		return n.length >= width ? n : new Array(width - n.length + 1)
+				.join('0')
+				+ n;
+	}
+
+	function addComma(num) {
+		var regexp = /\B(?=(\d{3})+(?!\d))/g;
+		return num.toString().replace(regexp, ',');
+	}
+
+	function drawLine(arrPoint) {
+		var polyline_;
+
+		polyline_ = new Tmapv2.Polyline({
+			path : arrPoint,
+			strokeColor : "#DD0000",
+			strokeWeight : 6,
+			map : map
+		});
+		resultdrawArr.push(polyline_);
+	}
+
+	function addMarkers(infoObj) {
+		var size = new Tmapv2.Size(24, 38);//아이콘 크기 설정합니다.
+
+		if (infoObj.pointType == "P") { //포인트점일때는 아이콘 크기를 줄입니다.
+			size = new Tmapv2.Size(8, 8);
+		}
+
+		marker_p = new Tmapv2.Marker({
+			position : new Tmapv2.LatLng(infoObj.lat, infoObj.lng),
+			icon : infoObj.markerImage,
+			iconSize : size,
+			map : map
+		});
+
+		resultMarkerArr.push(marker_p);
+	}
+</script>
+</head>
+<body onload="initTmap();">
+
+
+	<div id="layout_wrap">
+		<section class="in_section">
+			<h2 class="tit_1 bdr_b">타임머신 자동차 길 안내</h2>
+
+			<div class="sub">
+				<div class="time_toggle_wrap">
+					<div class="time_toggle">
+						<input checked id="tt_st" name="time_toggle" type="radio"
+							value="arrival"> <label for="tt_st">출발시간</label> <input
+							id="tt_ed" name="time_toggle" type="radio" value="departure">
+						<label for="tt_ed">도착시간</label>
+					</div>
+					<div class="clear"></div>
+				</div>
+
+				<div class="ft_area m">
+					<div class="ft_select_wrap">
+						<div class="ft_select">
+							<select id="year">
+								<option value="2025" selected="selected">2025</option>
+								<option value="2026">2026</option>
+								<option value="2027">2027</option>
+								<option value="2028">2028</option>
+								<option value="2029">2029</option>
+								<option value="2030">2030</option>
+							</select> <label>년</label> <select id="month">
+								<option value="01" selected="selected">01</option>
+								<option value="02">02</option>
+								<option value="03">03</option>
+								<option value="04">04</option>
+								<option value="05">05</option>
+								<option value="06">06</option>
+								<option value="07">07</option>
+								<option value="08">08</option>
+								<option value="09">09</option>
+								<option value="10">10</option>
+								<option value="11">11</option>
+								<option value="12">12</option>
+							</select> <label>월</label> <select id="day">
+								<option value="01" selected="selected">01</option>
+								<option value="02">02</option>
+								<option value="03">03</option>
+								<option value="04">04</option>
+								<option value="05">05</option>
+								<option value="06">06</option>
+								<option value="07">07</option>
+								<option value="08">08</option>
+								<option value="09">09</option>
+								<option value="10">10</option>
+								<option value="11">11</option>
+								<option value="12">12</option>
+								<option value="13">13</option>
+								<option value="14">14</option>
+								<option value="15">15</option>
+								<option value="16">16</option>
+								<option value="17">17</option>
+								<option value="18">18</option>
+								<option value="19">19</option>
+								<option value="20">20</option>
+								<option value="21">21</option>
+								<option value="22">22</option>
+								<option value="23">23</option>
+								<option value="24">24</option>
+								<option value="25">25</option>
+								<option value="26">26</option>
+								<option value="27">27</option>
+								<option value="28">28</option>
+								<option value="29">29</option>
+								<option value="30">30</option>
+								<option value="31">31</option>
+							</select> <label>일</label> <select id="hour">
+								<option value="00" selected="selected">00</option>
+								<option value="01">01</option>
+								<option value="02">02</option>
+								<option value="03">03</option>
+								<option value="04">04</option>
+								<option value="05">05</option>
+								<option value="06">06</option>
+								<option value="07">07</option>
+								<option value="08">08</option>
+								<option value="09">09</option>
+								<option value="10">10</option>
+								<option value="11">11</option>
+								<option value="12">12</option>
+								<option value="13">13</option>
+								<option value="14">14</option>
+								<option value="15">15</option>
+								<option value="16">16</option>
+								<option value="17">17</option>
+								<option value="18">18</option>
+								<option value="19">19</option>
+								<option value="20">20</option>
+								<option value="21">21</option>
+								<option value="22">22</option>
+								<option value="23">23</option>
+								<option value="24">24</option>
+							</select> <label>시</label> <select id="min">
+								<option value="00" selected="selected">00</option>
+								<option value="01">01</option>
+								<option value="02">02</option>
+								<option value="03">03</option>
+								<option value="04">04</option>
+								<option value="05">05</option>
+								<option value="06">06</option>
+								<option value="07">07</option>
+								<option value="08">08</option>
+								<option value="09">09</option>
+								<option value="10">10</option>
+								<option value="11">11</option>
+								<option value="12">12</option>
+								<option value="13">13</option>
+								<option value="14">14</option>
+								<option value="15">15</option>
+								<option value="16">16</option>
+								<option value="17">17</option>
+								<option value="18">18</option>
+								<option value="19">19</option>
+								<option value="20">20</option>
+								<option value="21">21</option>
+								<option value="22">22</option>
+								<option value="23">23</option>
+								<option value="24">24</option>
+								<option value="25">25</option>
+								<option value="26">26</option>
+								<option value="27">27</option>
+								<option value="28">28</option>
+								<option value="29">29</option>
+								<option value="30">30</option>
+								<option value="31">31</option>
+								<option value="32">32</option>
+								<option value="33">33</option>
+								<option value="34">34</option>
+								<option value="35">35</option>
+								<option value="36">36</option>
+								<option value="37">37</option>
+								<option value="38">38</option>
+								<option value="39">39</option>
+								<option value="40">40</option>
+								<option value="41">41</option>
+								<option value="42">42</option>
+								<option value="43">43</option>
+								<option value="44">44</option>
+								<option value="45">45</option>
+								<option value="46">46</option>
+								<option value="47">47</option>
+								<option value="48">48</option>
+								<option value="49">49</option>
+								<option value="50">50</option>
+								<option value="51">51</option>
+								<option value="52">52</option>
+								<option value="53">53</option>
+								<option value="54">54</option>
+								<option value="55">55</option>
+								<option value="56">56</option>
+								<option value="57">57</option>
+								<option value="58">58</option>
+								<option value="59">59</option>
+							</select> <label>분</label> <select id="selectLevel">
+								<option value="00" selected="selected">교통최적+추천</option>
+								<option value="01">교통최적+무료우선</option>
+								<option value="02">교통최적+최소시간</option>
+								<option value="03">교통최적+초보</option>
+								<option value="04">교통최적+고속도로우선</option>
+								<option value="10">최단거리+유/무료</option>
+								<option value="19">교통최적+어린이보호구역 회피</option>
+							</select>
+							<button id="btn_select">적용하기</button>
+						</div>
+					</div>
+					<div class="clear"></div>
+				</div>
+
+				<div id="map_wrap" class="map_wrap">
+					<div id="map_div"></div>
+				</div>
+				<div class="map_act_btn_wrap clear_box"></div>
+				<p id="result"></p>
+				
+
+</body>
+</html>
+
+
+
+
+			
+			
+			

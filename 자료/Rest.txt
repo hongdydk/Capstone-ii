@@ -1,0 +1,37 @@
+기본정보
+OpenAPI 기본정보
+항목명	값
+Request URL	
+https://data.ex.co.kr/openapi/locationinfo/locationinfoRest
+호출방법	HTTPS GET
+검색결과포맷	XML, JSON
+요청변수
+OpenAPI 요청변수
+요청변수	값	조건	설명
+key	string	필수	발급받은 인증키
+type	string	필수	검색결과 포맷
+unitCode	string	선택	휴게소코드
+routeNo	string	선택	노선코드
+numOfRows	string	선택	한 페이지당 출력건수
+pageNo	string	선택	출력 페이지번호
+stdRestCd	string	선택	휴게소/주유소코드
+serviceAreaCode	string	선택	영업부대시설코드
+출력결과
+OpenAPI 출력결과
+출력변수	값	설명
+unitName	string	휴게소명
+routeName	string	노선명
+xValue	string	X좌표값
+yValue	string	Y좌표값
+numOfRows	string	한 페이지당 출력건수
+pageNo	string	출력 페이지번호
+stdRestCd	string	휴게소/주유소코드
+serviceAreaCode	string	영업부대시설코드
+unitCode	string	휴게소코드
+routeNo	string	노선코드
+unitCode	string	휴게소코드
+routeNo	string	노선코드
+pageSize	string	전체 페이지 수
+code	string	결과
+message	string	결과 메시지
+count	string	전체 결과 수

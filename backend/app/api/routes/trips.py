@@ -21,12 +21,15 @@ async def create_trip(body: TripCreate, db: DbDep) -> Trip:
     trip = Trip(
         driver_id=body.driver_id,
         vehicle_id=body.vehicle_id,
-        origin_name=body.origin_name,
-        origin_lat=body.origin_lat,
-        origin_lon=body.origin_lon,
         dest_name=body.dest_name,
         dest_lat=body.dest_lat,
         dest_lon=body.dest_lon,
+        waypoints=[w.model_dump() for w in body.waypoints],
+        vehicle_height_m=body.vehicle_height_m,
+        vehicle_weight_kg=body.vehicle_weight_kg,
+        vehicle_length_cm=body.vehicle_length_cm,
+        vehicle_width_cm=body.vehicle_width_cm,
+        departure_time=body.departure_time,
     )
     db.add(trip)
     await db.commit()

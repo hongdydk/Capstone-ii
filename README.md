@@ -31,6 +31,8 @@ OR-Tools + TMAP 화물차 전용 API로 최적 동선을 계산하는 VRP 엔진
 | 핵심 기능 | TSP 기반 경유지 순서 최적화 + 법정 휴게소 자동 삽입 |
 | 법적 근거 | 2시간(7,200초) 연속 운전 시 15분(900초) 이상 의무 휴식 |
 | 계획 임계값 | 1시간 40분(6,000초) 도달 시 선제적으로 휴게소 삽입 |
+| 역할 분리 | 관리자(경유지·목적지 등록) / 기사(출발지 전달 → 최적 동선 수신) |
+| 차량 제원 입력 | 관리자 또는 기사(지입기사) 모두 입력 가능 — 기사 입력값이 우선 적용 |
 
 ---
 
@@ -43,7 +45,8 @@ OR-Tools + TMAP 화물차 전용 API로 최적 동선을 계산하는 VRP 엔진
 | SQLAlchemy (asyncio) | 2.0.34 |
 | PostgreSQL | 16 |
 | OR-Tools | 9.15.6755 |
-| TMAP 화물차 경로 API | - |
+| TMAP 화물차 경로 API | `/tmap/truck/routes` (실시간) |
+| TMAP 타임머신 API | `/tmap/routes/prediction` (출발 예정 시각 기반 예측 교통) |
 | Docker / Docker Compose | - |
 
 ---
@@ -196,15 +199,26 @@ Swagger UI에서 전체 스펙 확인 가능: **http://localhost:8000/docs**
 
 ## 8. 핵심 요청/응답 예시
 
-### POST `/optimize/` — 경로 최적화
+### 워크플로우 — 관리자 → 기사
+
+```
+[관리자]  POST /trips/        → 경유지·목적지·(차량 제원)·출발 예정 시각 등록
+[기사]    POST /optimize/     → trip_id + 현재 출발 위치 + (차량 제원 override) 전달 → 최적 동선 수신
+```
+
+> **차량 제원 우선순위**: 기사(optimize 요청) 입력 > 관리자(trip 등록) 입력  
+> - 관리자가 미리 차량 제원을 등록한 경우 → 기사는 출발지만 전달해도 됩니다.  
+> - 지입기사처럼 본인 차량을 직접 아는 경우 → optimize 호출 시 차량 제원을 직접 입력하면 덮어씁니다.
+
+---
+
+### POST `/trips/` — 운행 생성 (관리자)
 
 **요청**
 ```json
 {
-  "trip_id": 1,
-  "origin_name": "서울 물류단지",
-  "origin_lat": 37.5665,
-  "origin_lon": 126.9780,
+  "driver_id": 1,
+  "vehicle_id": 1,
   "dest_name": "부산 물류단지",
   "dest_lat": 35.1796,
   "dest_lon": 129.0756,
@@ -216,9 +230,46 @@ Swagger UI에서 전체 스펙 확인 가능: **http://localhost:8000/docs**
   "vehicle_weight_kg": 25000,
   "vehicle_length_cm": 1600,
   "vehicle_width_cm": 250,
+  "departure_time": "2026-03-26T08:00:00+0900"
+}
+```
+
+> `departure_time` 입력 시 TMAP 타임머신 API(`/tmap/routes/prediction`)를 사용하여  
+> 실제 출발 예정 시각의 교통 상황을 반영한 시간 행렬을 계산합니다.
+
+---
+
+### POST `/optimize/` — 경로 최적화 (기사)
+
+**요청 — 관리자가 차량 제원을 미리 등록한 경우 (출발지만 입력)**
+```json
+{
+  "trip_id": 1,
+  "origin_name": "서울 자택",
+  "origin_lat": 37.5665,
+  "origin_lon": 126.9780,
   "initial_drive_sec": 0
 }
 ```
+
+**요청 — 지입기사가 본인 차량 제원을 직접 입력하는 경우**
+```json
+{
+  "trip_id": 1,
+  "origin_name": "인천 자택",
+  "origin_lat": 37.4563,
+  "origin_lon": 126.7052,
+  "initial_drive_sec": 0,
+  "vehicle_height_m": 4.0,
+  "vehicle_weight_kg": 25000,
+  "vehicle_length_cm": 1600,
+  "vehicle_width_cm": 250
+}
+```
+
+> - 경유지·목적지·출발 예정 시각은 `trip_id`로 DB에서 자동 로드됩니다.
+> - 차량 제원(`vehicle_*`)을 전달하면 trip에 등록된 값을 override합니다.
+> - 아무것도 전달하지 않으면 관리자가 등록한 trip의 차량 제원을 그대로 사용합니다.
 
 **응답**
 ```json
@@ -238,7 +289,7 @@ Swagger UI에서 전체 스펙 확인 가능: **http://localhost:8000/docs**
 }
 ```
 
-### POST `/optimize/replan` — 운행 중 재경로
+### POST `/optimize/replan` — 운행 중 재경로 (기사)
 
 운행 도중 정체 등으로 누적 운전시간이 늘어났을 때 호출합니다.
 
@@ -300,6 +351,16 @@ Swagger UI에서 전체 스펙 확인 가능: **http://localhost:8000/docs**
 | `REST_PLAN_SEC` | 6,000초 (1시간 40분) | 선제적 휴게 삽입 임계값 |
 | `MIN_REST_SEC` | 900초 (15분) | 법정 최소 휴식 시간 |
 
+### TMAP API 선택 기준
+
+| 조건 | 사용 API | 설명 |
+|---|---|---|
+| `departure_time` 없음 | `POST /tmap/truck/routes` | 실시간 교통 반영 화물차 경로 |
+| `departure_time` 있음 | `POST /tmap/routes/prediction` | 출발 예정 시각의 예측 교통 반영 (타임머신) |
+
+타임머신 API는 `searchOption: "17"` (화물차 전용), `predictionType: "arrival"` 모드로 호출되며  
+차량 높이·중량·길이·폭 제약이 동일하게 적용됩니다.
+
 ### 처리 흐름
 
 ```
@@ -309,6 +370,7 @@ Swagger UI에서 전체 스펙 확인 가능: **http://localhost:8000/docs**
    └─ rest_preferred → 휴게소 후보 맨 앞에 배치
 
 2. TMAP 화물차 API로 N×N 시간 행렬 계산
+   └─ departure_time 있으면 타임머신 API, 없으면 실시간 API
    └─ 차량 높이/중량/길이/폭 제약 반영
 
 3. OR-Tools TSP로 경유지 방문 순서 최적화
@@ -380,6 +442,7 @@ cd c:\Capstone-ii   # 또는 프로젝트 루트
 |---|---|
 | 다수 차량 배차 (CVRP) | `POST /optimize/dispatch` — OR-Tools CVRP로 여러 차량에 경유지 분배 |
 | 인증 복원 | `auth.py` 기반 JWT 인증을 엔드포인트에 재적용 |
+| 하이브리드 라우팅 | 단거리(< 50 km) Haversine, 장거리(≥ 50 km) TMAP으로 API 호출 절감 |
 
 ---
 

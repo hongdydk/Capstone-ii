@@ -25,3 +25,5 @@ class RestStop(TimestampMixin, Base):
     latitude: Mapped[float] = mapped_column(Float, nullable=False)
     longitude: Mapped[float] = mapped_column(Float, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # 노선 방향: '상행' / '하행' / None(양방향 또는 미분류)
+    direction: Mapped[str | None] = mapped_column(String(10), nullable=True, default=None)

@@ -35,29 +35,25 @@ class ExtraStop(BaseModel):
     note: str | None = None   # 메모 (예: "오전 9시 이후 방문", "1층 냉장 하역")
 
 
-# ── 1. 관리자 경로 최적화 요청 ─────────────────────────────────────────────────
+# ── 1. 기사 경로 최적화 요청 ──────────────────────────────────────────────────
 
 class OptimizeRequest(BaseModel):
-    """관리자 배차 → 단일 차량 경로 최적화.
+    """기사 출발 → 단일 차량 경로 최적화.
 
-    배차 단계에서 관리자가 경유지 목록을 전달하면
-    OR-Tools + TMAP 으로 최적 동선을 계산하고 법정 휴게소를 삽입합니다.
+    기사가 현재 위치(출발지)를 전달하면,
+    trip에 저장된 경유지·목적지·차량 제원으로 최적 동선을 계산합니다.
+    경유지·목적지는 관리자가 trip 생성 시 이미 DB에 저장되어 있습니다.
     """
     trip_id: int
-    origin_name: str
+    # 기사의 현재 출발 위치 (집, 차고지, 이전 배송지 등)
+    origin_name: str = "출발지"
     origin_lat: float
     origin_lon: float
-    dest_name: str
-    dest_lat: float
-    dest_lon: float
-    waypoints: list[dict[str, Any]] = []
-    # 운전자/관리자가 직접 추가하는 경유 지점
-    # stop_type="waypoint" 이면 TSP 순서 최적화,
-    # stop_type="rest_preferred" 이면 선호 휴게소로 후보 목록에 추가됨
+    # 운전자가 직접 추가하는 경유 지점 (선호 휴게소, 긴급 납품처 등)
     extra_stops: list[ExtraStop] = []
-    # 누적 운전시간 이어받기 (운전자가 이미 운전 중인 경우, 기본 0)
+    # 누적 운전시간 이어받기 (기사가 이미 운전 중인 경우, 기본 0)
     initial_drive_sec: int = 0
-    # 화물차 제원
+    # 차량 제원 override (미입력 시 trip에 저장된 값 사용)
     vehicle_height_m: float | None = None
     vehicle_weight_kg: float | None = None
     vehicle_length_cm: float | None = None

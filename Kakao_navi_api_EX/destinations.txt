@@ -1,0 +1,124 @@
+다중 목적지 길찾기
+하나의 출발지에서 한 개 이상의 목적지까지의 경로 요약 정보를 제공합니다. 다중 목적지 길찾기의 경우 경로의 요약 정보를 제공하기 때문에 상세 정보를 받으려면 자동차 길찾기를 추가적으로 요청해야 합니다.
+
+목적지는 최대 30개까지 설정할 수 있으며 30개를 초과하여 목적지를 설정하려면 제휴 문의에서 제휴를 신청하세요.
+
+DANGER
+
+해당 API를 사용하기 위해서는 REST API 키 값이 반드시 필요합니다. 시작하기에서 앱 등록과 REST API 키 값 확인 방법을 참고하세요.
+
+Request
+요청 호출 방식과 각 요청 헤더에 포함될 내용을 안내합니다. 요청이 실패할 경우 문제 해결하기에서 에러에 대한 상세 내용을 확인하세요.
+
+호출 방식
+표 1 호출 방식
+Method	URL
+POST	https://apis-navi.kakaomobility.com/v1/destinations/directions
+요청 헤더(Header)
+표 2 요청 헤더
+Parameter	Description
+Authorization	KakaoAK ${REST_API_KEY}
+
+{REST_API_KEY}: 카카오디벨로퍼스에서 발급 받은 REST API 키
+Content-Type	application/json
+요청 코드 예제
+
+curl -v -X POST "https://apis-navi.kakaomobility.com/v1/destinations/directions" \
+-H "Content-Type: application/json" \
+-H "Authorization: KakaoAK ${REST_API_KEY}" \  // 카카오디벨로퍼스에서 발급 받은 API 키 값
+-d '{
+"origin": {
+  "x": "127.13144306487084",
+  "y": " 37.44134209110179"
+},
+"destinations": [
+  {
+    "x": "127.14112393388389",
+    "y": "37.44558371517034",
+    "key": "0"
+  },
+  {
+    "x": "127.14192737519186",
+    "y": "37.4401766683372",
+    "key": "1"
+  }
+],
+"radius": 5000
+}'
+요청에 대한 파라미터는 다음과 같습니다.
+
+표 3 요청 파라미터
+Name	Type	Description	Required
+origin	Object	출발지	필수
+name	String	출발지 이름	선택
+x	Double	X 좌표(경도)	필수
+y	Double	Y 좌표(위도)	필수
+destinations	Object[]	목적지, 최대 30개까지 허용	필수
+key	String	각 목적지를 구분하기 위한 임의의 문자열 지정	필수
+x	Double	X 좌표(경도)	필수
+y	Double	Y 좌표(위도)	필수
+radius	Int	길찾기 반경(미터)(최대: 10000)	필수
+priority	String	경로 탐색 우선순위 옵션
+
+다음 중 하나:
+TIME: 최단 시간
+DISTANCE: 최단 경로
+(기본값: TIME)	선택
+avoid	String[]	경로 탐색 제한 옵션
+
+다음 값 사용 가능:
+ferries: 페리 항로
+toll: 유료 도로
+motorway: 자동차 전용 도로
+schoolzone: 어린이 보호 구역
+uturn: 유턴
+(기본값: null)
+
+여러 개의 제한 옵션을 사용하려면 다음과 같이 연결
+(예: ["ferries", "motorway"])	선택
+roadevent	Int	유고(교통사고, 행사, 재난, 도로 공사 등의 교통 장애)로 인한 도로 통제 정보 반영 옵션
+
+0: 전체 차선 통제(도로 전체 통제) 정보를 반영
+1: 출발지 및 목적지 주변의 전체 차선 통제 정보 반영 안 함
+2: 모든 구간의 전체 차선 통제 정보 반영 안 함
+(기본값: 0)	선택
+Response
+응답 성공 시 요청에 대한 성공 여부를 HTTP 상태 코드로, 요청 본문은 JSON 포맷으로 전달합니다.
+
+응답 코드 예제
+
+{
+  "trans_id": "b2520cb429004460a4d5f389d108db38",
+  "routes": [
+      {
+          "result_code": 0,
+          "result_msg": "길찾기 성공",
+          "key": "0",
+          "summary": {
+              "distance": 1307,
+              "duration": 307
+          }
+      },
+      {
+          "result_code": 0,
+          "result_msg": "길찾기 성공",
+          "key": "1",
+          "summary": {
+              "distance": 1323,
+              "duration": 320
+          }
+      }
+  ]
+}
+요청 응답에 대한 객체 정보는 다음과 같습니다.
+
+표 4 응답 객체
+Name	Type	Description	Required
+trans_id	String	경로 요청 ID	필수
+routes	Object[]	경로 정보, 경로 수만큼 생성	필수
+result_code	Int	경로 탐색 결과 코드	필수
+result_msg	String	경로 탐색 결과 메시지	필수
+key	String	destinations의 key 값으로 지정한 각 목적지의 키 값	필수
+summary	Object	경로 요약 정보	필수
+distance	Int	전체 검색 결과 거리(미터)	필수
+duration	Int	목적지까지 소요 시간(초)	필수

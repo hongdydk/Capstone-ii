@@ -1,0 +1,372 @@
+자동차 길찾기
+하나의 출발지에서 하나의 목적지까지로의 경로에 대한 상세 정보를 제공합니다. 경유지는 최대 5개까지 추가할 수 있으며 모든 경유지를 포함한 경로의 총 거리는 1,500 km 미만으로 설정해야 합니다.
+
+DANGER
+
+해당 API를 사용하기 위해서는 REST API 키 값이 반드시 필요합니다. 시작하기에서 앱 등록과 REST API 키 값 확인 방법을 참고하세요.
+
+Request
+요청 호출 방식과 각 요청 헤더에 포함될 내용을 안내합니다. 요청이 실패할 경우 문제 해결하기에서 에러에 대한 상세 내용을 확인하세요.
+
+호출 방식
+표 1 호출 방식
+Method	URL
+GET	https://apis-navi.kakaomobility.com/v1/directions
+요청 헤더(Header)
+표 2 요청 헤더
+Parameter	Description
+Authorization	KakaoAK ${REST_API_KEY}
+
+{REST_API_KEY}: 카카오디벨로퍼스에서 발급 받은 REST API 키
+Content-Type	application/json
+요청 코드 예제
+
+curl -v -X GET "https://apis-navi.kakaomobility.com/v1/directions?origin=127.10764191124568,37.402464820205246,angle=270&destination=127.11056336672839,37.39419693653072&summary=false&waypoints=127.17354989857544,37.36629687436494&priority=RECOMMEND&car_fuel=GASOLINE&car_hipass=false&alternatives=false&road_details=false" \
+    -H "Authorization: KakaoAK ${REST_API_KEY}" // 카카오디벨로퍼스에서 발급 받은 API 키 값
+요청에 대한 파라미터는 다음과 같습니다.
+
+표 3 요청 파라미터
+Name	Type	Description	Required
+origin	String	출발지
+
+다음 중 하나의 형식으로 요청:
+1. ${X좌표},${Y좌표},name=${출발지명}
+(예: "127.111202,37.394912,name=판교역")
+
+2. ${X좌표},${Y좌표}
+(예: "127.111202,37.394912")
+
+3.${X좌표},${Y좌표},${angle}
+(예:"127.111202,37.394912,angle=90")
+
+angle: 출발지의 초기 진행 방향 지정. 0~360 범위의 정수를 입력
+(각도에 따른 방향: 0 = 북쪽, 90 = 동쪽, 180 = 남쪽, 270 = 서쪽 등 시계 방향으로 반영. 범위를 벗어난 값은 무시)	필수
+destination	String	목적지
+
+다음 중 하나의 형식으로 요청:
+${X좌표},${Y좌표},name=${목적지명} 또는 ${X좌표},${Y좌표}
+(예: "127.111202,37.394912,name=판교역" 또는 "127.111202,37.394912")	필수
+waypoints	String	경유지, 최대 5개까지 허용
+모든 경유지를 포함한 경로의 총 거리는 1,500 km 미만으로 설정해야 함.
+
+경유지 수만큼 ${X좌표},${Y좌표},name=${경유지명} 또는 ${X좌표},${Y좌표}를 |(또는 인코딩 된 문자인 %7C)로 연결하여 입력
+(예: "127.111202,37.394912,name=판교역 | 127.112275,37.392815")	선택
+priority	String	경로 탐색 우선순위 옵션
+
+다음 중 하나:
+RECOMMEND: 추천 경로
+TIME: 최단 시간
+DISTANCE: 최단 경로
+(기본값: RECOMMEND)	선택
+avoid	String	경로 탐색 제한 옵션
+
+다음 값 사용 가능:
+ferries: 페리 항로
+toll: 유료 도로
+motorway: 자동차 전용 도로
+schoolzone: 어린이 보호 구역
+uturn: 유턴
+(기본값: null)
+
+여러 개의 제한 옵션을 사용하려면 |(또는 인코딩 된 문자인 %7C)로 연결
+(예: avoid=motorway|ferries)	선택
+roadevent	Int	유고(교통사고, 행사, 재난, 도로 공사 등의 교통 장애)로 인한 도로 통제 정보 반영 옵션
+
+0: 전체 차선 통제(도로 전체 통제) 정보를 반영
+1: 출발지 및 목적지 주변의 전체 차선 통제 정보 반영 안 함
+2: 모든 구간의 전체 차선 통제 정보 반영 안 함
+(기본값: 0)	선택
+alternatives	Boolean	대안 경로 제공 여부
+
+true: 대안 경로 제공
+false: 대안 경로 미제공
+(기본값: false)	선택
+road_details	Boolean	상세 도로 정보 제공 여부
+
+true: 상세 도로 정보 제공
+false: 상세 도로 정보 미제공
+(기본값: false)	선택
+car_type	Int	차종
+
+(기본값: 1)	선택
+car_fuel	String	차량 유종 정보
+
+다음 중 하나:
+GASOLINE: 휘발유
+DIESEL: 경유
+LPG: LPG
+(기본값: GASOLINE)	선택
+car_hipass	Boolean	하이패스 장착 여부
+
+true: 하이패스 장착
+false: 하이패스 미장착
+(기본값: false)	선택
+summary	Boolean	경로 정보 응답 범위 설정
+
+true: 요약 정보만 반환 (sections의 bound, roads, guides 정보 제외)
+false: 요약 정보와 상세 정보 반환(sections의 bound, roads, guides 정보 포함)
+(기본값: false)	선택
+Response
+응답 성공 시 요청에 대한 성공 여부를 HTTP 상태 코드로, 요청 본문은 JSON 포맷으로 전달합니다.
+
+응답 코드 예제
+
+{
+  "trans_id": "01948280a50d700d945a8ec5c132709d",
+  "routes": [
+      {
+          "result_code": 0,
+          "result_msg": "길찾기 성공",
+          "summary": {
+              "origin": {
+                  "name": "",
+                  "x": 127.10763058573032,
+                  "y": 37.40246478787756
+              },
+              "destination": {
+                  "name": "",
+                  "x": 127.1098265381582,
+                  "y": 37.394425724914576
+              },
+              "waypoints": [
+                  {
+                      "name": "",
+                      "x": 127.17353858063272,
+                      "y": 37.3662968484953
+                  }
+              ],
+              "priority": "RECOMMEND",
+              "bound": {
+                  "min_x": 127.10699672876241,
+                  "min_y": 37.35782058991495,
+                  "max_x": 127.17437025337696,
+                  "max_y": 37.40371556711698
+              },
+              "fare": {
+                  "taxi": 22200,
+                  "toll": 0
+              },
+              "distance": 19032,
+              "duration": 3494
+          },
+          "sections": [
+              {
+                  "distance": 10035,
+                  "duration": 1880,
+                  "bound": {
+                      "min_x": 127.16765984810529,
+                      "min_y": 37.35821336047281,
+                      "max_x": 127.17352998262038,
+                      "max_y": 37.40325103149278
+                  },
+                  "roads": [
+                      {
+                          "name": "판교역로241번길",
+                          "distance": 186,
+                          "duration": 47,
+                          "traffic_speed": 14.0,
+                          "traffic_state": 2,
+                          "vertexes": [
+                              127.10763122680424,
+                              37.40241072822385,
+                              // 코드 생략
+                              127.10645821495126,
+                              37.40322184743522
+                          ]
+                      },
+                      ...
+                      {
+                          "name": "문형산길",
+                          "distance": 596,
+                          "duration": 104,
+                          "traffic_speed": 16.0,
+                          "traffic_state": 0,
+                          "vertexes": [
+                              127.16765984810529,
+                              37.36601233289304,
+                              // 코드 생략
+                              127.17352998262038,
+                              37.36708073181059
+                          ]
+                      }
+                  ],
+                  "guides": [
+                      {
+                          "name": "출발지",
+                          "x": 127.10763122680424,
+                          "y": 37.40241072822385,
+                          "distance": 0,
+                          "duration": 0,
+                          "type": 100,
+                          "guidance": "출발지",
+                          "road_index": 0
+                      },
+                      // 코드 생략
+                      {
+                          "name": "경유지",
+                          "x": 127.17352998262038,
+                          "y": 37.36708073181059,
+                          "distance": 596,
+                          "duration": 104,
+                          "type": 1000,
+                          "guidance": "경유지",
+                          "road_index": -1
+                      }
+                  ]
+              },
+              {
+                  "distance": 8997,
+                  "duration": 1614,
+                  "bound": {
+                      "min_x": 127.10966790676201,
+                      "min_y": 37.35832776837687,
+                      "max_x": 127.17475981481635,
+                      "max_y": 37.39447077471427
+                  },
+                  "roads": [
+                      {
+                          "name": "문형산안길1번길",
+                          "distance": 85,
+                          "duration": 19,
+                          "traffic_speed": 16.0,
+                          "traffic_state": 0,
+                          "vertexes": [
+                              127.17352998262038,
+                              37.36708073181059,
+                              127.17357513799075,
+                              37.36708104732421,
+                              127.17372149772216,
+                              37.367118113235804,
+                              127.1739231164781,
+                              37.36726369503417,
+                              127.17434992149448,
+                              37.36746491368941
+                          ]
+                      },
+                      // 코드 생략
+                      {
+                          "name": "",
+                          "distance": 14,
+                          "duration": 3,
+                          "traffic_speed": 16.0,
+                          "traffic_state": 0,
+                          "vertexes": [
+                              127.10966790676201,
+                              37.394469584427156,
+                              127.10982600539788,
+                              37.39447077471427
+                          ]
+                      }
+                  ],
+                  "guides": [
+                      {
+                          "name": "경유지",
+                          "x": 127.17352998262038,
+                          "y": 37.36708073181059,
+                          "distance": 0,
+                          "duration": 0,
+                          "type": 1000,
+                          "guidance": "경유지",
+                          "road_index": 0
+                      },
+                      // 코드 생략
+                      {
+                          "name": "",
+                          "x": 127.10966790676201,
+                          "y": 37.394469584427156,
+                          "distance": 81,
+                          "duration": 50,
+                          "type": 2,
+                          "guidance": "우회전",
+                          "road_index": 11
+                      },
+                      {
+                          "name": "목적지",
+                          "x": 127.10982600539788,
+                          "y": 37.39447077471427,
+                          "distance": 14,
+                          "duration": 3,
+                          "type": 101,
+                          "guidance": "목적지",
+                          "road_index": -1
+                      }
+                  ]
+              }
+          ]
+      }
+  ]
+}
+요청 응답에 대한 객체 정보는 다음과 같습니다.
+
+표 4 응답 객체
+Name	Type	Description	Required
+trans_id	String	경로 요청 ID	필수
+routes	Object[]	경로 정보
+
+alternatives가 true인 경우 한 개 이상의 경로 제공 가능	필수
+result_code	Int	경로 탐색 결과 코드	필수
+result_msg	String	경로 탐색 결과 메시지	필수
+summary	Object	경로 요약 정보	필수
+origin	Object	출발지 정보	필수
+name	String	출발지 이름	필수
+x	Double	X 좌표(경도)	필수
+y	Double	Y 좌표(위도)	필수
+destination	Object	목적지 정보	필수
+name	String	목적지 이름	필수
+x	Double	X 좌표(경도)	필수
+y	Double	Y 좌표(위도)	필수
+waypoints	Object[]	경유지 정보	필수
+name	String	경유지 이름	필수
+x	Double	X 좌표(경도)	필수
+y	Double	Y 좌표(위도)	필수
+priority	String	경로 탐색 우선순위 옵션	필수
+bound	Object	모든 경로를 포함하는 사각형의 바운딩 박스(Bounding box)	선택
+min_x	Double	바운딩 박스 왼쪽 하단의 X 좌표	필수
+min_y	Double	바운딩 박스 왼쪽 하단의 Y 좌표	필수
+max_x	Double	바운딩 박스 오른쪽 상단의 X 좌표	필수
+max_y	Double	바운딩 박스 오른쪽 상단의 Y 좌표	필수
+fare	Object	요금 정보	필수
+taxi	Int	택시 요금(원)	필수
+toll	Int	통행 요금(원)	필수
+distance	Int	전체 검색 결과 거리(미터)	필수
+duration	Int	목적지까지 소요 시간(초)	필수
+sections	Object[]	구간별 경로 정보
+
+경유지가 존재할 경우 {경유지 수 + 1} 만큼의 섹션(경로 구간) 생성
+(예: 경유지 수가 2개인 경우 총 3개의 섹션 정보가 생성,
+section1: 출발지 → 경유지 1
+section2: 경유지 1 → 경유지 2
+section3: 경유지 2 → 목적지)	필수
+distance	Int	섹션 거리(미터)	필수
+duration	Int	전체 검색 결과 이동 시간(초)	필수
+bound	Object	모든 경로를 포함하는 사각형의 바운딩 박스(Bounding box)
+
+summary가 false인 경우에만 제공	선택
+min_x	Double	바운딩 박스 왼쪽 하단의 X 좌표	필수
+min_y	Double	바운딩 박스 왼쪽 하단의 Y 좌표	필수
+max_x	Double	바운딩 박스 오른쪽 상단의 X 좌표	필수
+max_y	Double	바운딩 박스 오른쪽 상단의 Y 좌표	필수
+roads	Object[]	도로 정보
+
+summary가 false인 경우에만 제공	선택
+name	String	도로명	필수
+distance	Int	도로 길이(미터)	필수
+duration	Int	예상 이동 시간(초)
+
+현재 예상 이동 시간 및 실제 이동 시간은 동일한 값으로 설정	필수
+traffic_speed	Double	현재 교통 정보 속도(km/h)	필수
+traffic_state	Int	현재 교통 정보 상태	필수
+vertexes	Double[]	X, Y 좌표로 구성된 1차원 배열
+
+(예: [127.10966790676201, 37.394469584427156, 127.10967141980313, 37.39512739646385] )	필수
+guides	Object[]	안내 정보
+
+summary가 false인 경우에만 제공	선택
+name	String	명칭	필수
+x	Double	X 좌표(경도)	필수
+y	Double	Y 좌표(위도)	필수
+distance	Int	이전 가이드 지점부터 현재 가이드 지점까지 거리(미터)	필수
+duration	Int	이전 가이드 지점부터 현재 가이드 지점까지 시간(초)	필수
+type	Int	안내 타입	필수
+guidance	String	안내 문구	필수
+road_index	Int	현재 가이드에 대한 링크 인덱스	필수

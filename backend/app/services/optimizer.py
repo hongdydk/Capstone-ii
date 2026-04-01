@@ -1,7 +1,7 @@
 from ortools.constraint_solver import pywrapcp, routing_enums_pb2
 
 
-def solve_tsp(time_matrix: list[list[int]]) -> list[int]:
+def solve_tsp(time_matrix: list[list[int]], *, time_limit_seconds: int = 10) -> list[int]:
     """
     OR-Tools TSP로 경유지 방문 순서를 최적화합니다.
 
@@ -35,7 +35,7 @@ def solve_tsp(time_matrix: list[list[int]]) -> list[int]:
     search_params.local_search_metaheuristic = (
         routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
     )
-    search_params.time_limit.seconds = 10
+    search_params.time_limit.seconds = time_limit_seconds
 
     solution = routing.SolveWithParameters(search_params)
     if not solution:

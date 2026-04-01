@@ -77,6 +77,7 @@ async def optimize(req: OptimizeRequest, db: AsyncSession = Depends(get_db)):
     # ------------------------------------------------------------------
     time_matrix = await kakao_svc.build_time_matrix(
         nodes,
+        route_mode=req.route_mode,
         departure_time=trip.departure_time,
         **veh,
     )
@@ -187,7 +188,7 @@ async def replan(req: ReplanRequest, db: AsyncSession = Depends(get_db)):
         "width_cm": req.vehicle_width_cm or trip.vehicle_width_cm,
     }
 
-    time_matrix = await kakao_svc.build_time_matrix(nodes, **veh)
+    time_matrix = await kakao_svc.build_time_matrix(nodes, route_mode=req.route_mode, **veh)
     tsp_order = solve_tsp(time_matrix)
 
     ordered_nodes = [

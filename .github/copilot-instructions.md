@@ -6,12 +6,12 @@
 
 - **백엔드**: FastAPI + SQLAlchemy 2.x async + PostgreSQL (asyncpg)
 - **최적화 파이프라인**: Kakao Mobility API(N²-N 동시 호출) → OR-Tools TSP → 휴게소 삽입
-- **프론트 2종**: 관제 웹(admin/contractor), 기사 앱(driver)
+- **프론트 2종**: 관제 웹(admin 전용), 기사 앱(driver · contractor 공용)
 
 주요 경계:
 | 모듈 | 역할 |
 |---|---|
-| `backend/app/services/kakao.py` | Kakao Mobility API — N×N 시간 행렬, asyncio.gather로 동시 호출 |
+| `backend/app/services/kakao.py` | Kakao Mobility API — `departure_time` 없으면 다중 목적지 API(N회), 있으면 Future Directions 개별 호출(N²-N회) |
 | `backend/app/services/optimizer.py` | OR-Tools TSP — index 0 출발지 고정, index n-1 목적지 고정 |
 | `backend/app/services/rest_stop_inserter.py` | 법정 휴게소 삽입 — REST_PLAN_SEC=6000초 임계값 |
 | `backend/app/models/` | SQLAlchemy Mapped 모델 — `SCHEMA.md`와 1:1 대응 |

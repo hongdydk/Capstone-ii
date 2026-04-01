@@ -117,7 +117,10 @@ async def optimize(req: OptimizeRequest, db: AsyncSession = Depends(get_db)):
     # 4. 법정 휴게소 삽입
     # ------------------------------------------------------------------
     rest_result = await db.execute(
-        select(RestStop).where(RestStop.is_active == True)  # noqa: E712
+        select(RestStop).where(
+            RestStop.is_active == True,  # noqa: E712
+            RestStop.type != "depot",
+        )
     )
     rest_stops_db = rest_result.scalars().all()
     rest_candidates = preferred_rest + [
@@ -207,7 +210,10 @@ async def replan(req: ReplanRequest, db: AsyncSession = Depends(get_db)):
     )
 
     rest_result = await db.execute(
-        select(RestStop).where(RestStop.is_active == True)  # noqa: E712
+        select(RestStop).where(
+            RestStop.is_active == True,  # noqa: E712
+            RestStop.type != "depot",
+        )
     )
     rest_stops_db = [
         {"name": r.name, "latitude": r.latitude, "longitude": r.longitude, "is_active": True}

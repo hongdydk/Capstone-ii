@@ -139,6 +139,7 @@ async def optimize(req: OptimizeRequest, db: AsyncSession = Depends(get_db)):
             "longitude": r.longitude,
             "is_active": r.is_active,
             "direction": r.direction,
+            "type": r.type.value,
         }
         for r in rest_stops_db
     ]

@@ -358,15 +358,25 @@ async def find_best_rest_stop(
                     times[idx][1] = t
 
     except Exception:
-        # API 실패 시 Haversine fallback
+        # API 실패 시 Haversine fallback — highway_rest 우선, 없으면 drowsy_shelter
+        priority = [c for c in filtered if c.get("type") != "drowsy_shelter"]
+        pool = priority if priority else filtered
         return min(
-            filtered,
+            pool,
             key=lambda c: (
                 _haversine_km(prev.lat, prev.lon, c["latitude"], c["longitude"])
                 + _haversine_km(c["latitude"], c["longitude"], nxt.lat, nxt.lon)
             ),
         )
 
+    # highway_rest 우선: non-drowsy 후보 중에서 최적 탐색
+    priority_indices = [i for i in times if filtered[i].get("type") != "drowsy_shelter"]
+    if priority_indices:
+        best_idx = min(priority_indices, key=lambda i: times[i][0] + times[i][1])
+        if times[best_idx][0] + times[best_idx][1] < _UNREACHABLE_SEC * 2:
+            return filtered[best_idx]
+
+    # 폴백: 전체 후보(drowsy_shelter 포함) 중 최적
     best_idx = min(times, key=lambda i: times[i][0] + times[i][1])
     return filtered[best_idx]
 

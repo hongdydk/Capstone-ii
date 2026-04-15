@@ -1,0 +1,49 @@
+고속도로 휴게소 기준정보 현황
+로고
+설명
+본 데이터는 한국도로공사에서 제공하는 고속도로 휴게소의 주요 정보를 조회할 수 있는 OpenAPI 서비스이다.
+해당 API는 고속도로에 설치된 휴게소의 명칭, 위치, 노선명, 운영 방향, 관리 주체, 주소, 행정구역 등의 정보를 포함하고 있다.
+휴게소는 운전자 및 탑승자의 편의 제공, 운행 중 휴식 및 서비스 이용 등을 위해 설계된 시설로서, 교통 운영의 필수 인프라 중 하나이다.
+이 데이터는 휴게소 현황 파악, 시설 배치 분석, 서비스 개선 방안 마련, 긴급 상황 시 대응 체계 구축 등에 활용 가능하다.
+제공 형식은 XML 및 JSON이며, 인증키를 발급받아 표준화된 요청 형식에 따라 호출할 수 있다.
+정기적으로 갱신되며, 공공데이터 포털을 통해 누구나 자유롭게 접근할 수 있다.
+본 데이터는 민간 네비게이션, 교통정보 시스템, 물류 및 운송 계획 수립 등 다양한 분야에서 응용될 수 있다.
+한국도로공사는 해당 정보를 바탕으로 국민 교통 편의 증진과 효율적인 고속도로 운영을 도모하고자 한다.
+
+기본정보
+OpenAPI 기본정보
+항목명	값
+Request URL	
+https://data.ex.co.kr/openapi/locationinfo/locationinfoRest
+호출방법	HTTPS GET
+검색결과포맷	XML, JSON
+요청변수
+OpenAPI 요청변수
+요청변수	값	조건	설명
+key	string	필수	발급받은 인증키
+type	string	필수	검색결과 포맷
+unitCode	string	선택	휴게소코드
+routeNo	string	선택	노선코드
+numOfRows	string	선택	한 페이지당 출력건수
+pageNo	string	선택	출력 페이지번호
+stdRestCd	string	선택	휴게소/주유소코드
+serviceAreaCode	string	선택	영업부대시설코드
+출력결과
+OpenAPI 출력결과
+출력변수	값	설명
+unitName	string	휴게소명
+routeName	string	노선명
+xValue	string	X좌표값
+yValue	string	Y좌표값
+numOfRows	string	한 페이지당 출력건수
+pageNo	string	출력 페이지번호
+stdRestCd	string	휴게소/주유소코드
+serviceAreaCode	string	영업부대시설코드
+unitCode	string	휴게소코드
+routeNo	string	노선코드
+unitCode	string	휴게소코드
+routeNo	string	노선코드
+pageSize	string	전체 페이지 수
+code	string	결과
+message	string	결과 메시지
+count	string	전체 결과 수

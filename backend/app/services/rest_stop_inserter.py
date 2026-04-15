@@ -48,18 +48,34 @@ def _haversine_sec(
 def _pick_best_rest(
     prev: RouteNode, nxt: RouteNode, candidates: list[dict]
 ) -> dict | None:
-    """우회 비용(prev → 휴게소 → next) Haversine 최소 후보를 반환합니다."""
-    best: dict | None = None
-    best_cost = float("inf")
-    for c in candidates:
-        if not c.get("is_active", True):
-            continue
-        cost = _haversine_sec(prev.lat, prev.lon, c["latitude"], c["longitude"]) + \
-               _haversine_sec(c["latitude"], c["longitude"], nxt.lat, nxt.lon)
-        if cost < best_cost:
-            best_cost = cost
-            best = c
-    return best
+    """우회 비용(prev → 휴게소 → next) Haversine 최소 후보를 반환합니다.
+
+    highway_rest 우선 탐색 — 후보가 없을 때만 drowsy_shelter로 폴백합니다.
+    화물차가 졸음쉼터에 진입하지 못하는 경우를 대비한 우선순위 정책입니다.
+    """
+    def _best_from(pool: list[dict]) -> dict | None:
+        best: dict | None = None
+        best_cost = float("inf")
+        for c in pool:
+            if not c.get("is_active", True):
+                continue
+            cost = (
+                _haversine_sec(prev.lat, prev.lon, c["latitude"], c["longitude"])
+                + _haversine_sec(c["latitude"], c["longitude"], nxt.lat, nxt.lon)
+            )
+            if cost < best_cost:
+                best_cost = cost
+                best = c
+        return best
+
+    # 1순위: highway_rest + preferred(type 없음)
+    priority = [c for c in candidates if c.get("type") != "drowsy_shelter"]
+    result = _best_from(priority)
+    if result:
+        return result
+
+    # 2순위(폴백): drowsy_shelter
+    return _best_from(candidates)
 
 
 async def insert_rest_stops(

@@ -70,7 +70,7 @@ def _run_pipeline(
 
 
 REST_CANDIDATES = [
-    {"name": "중부고속도로휴게소", "latitude": 37.25, "longitude": 127.25, "is_active": True},
+    {"name": "중부고속도로휴게소", "latitude": 37.25, "longitude": 127.25, "is_active": True, "type": "highway_rest"},
 ]
 
 
@@ -223,3 +223,36 @@ class TestFullPipeline:
         result = _run_pipeline(nodes, matrix, rest_candidates=[])
         rest_nodes = [r for r in result if r.type == "rest_stop"]
         assert len(rest_nodes) == 0
+
+    def test_highway_rest_priority_over_drowsy_shelter(self):
+        """
+        highway_rest 와 drowsy_shelter 후보가 동시에 있을 때
+        highway_rest 가 우선 선택되어야 합니다.
+        """
+        nodes = _make_nodes(2)
+        matrix = _make_matrix(2, REST_PLAN_SEC + 1)
+        candidates = [
+            {"name": "졸음쉼터A", "latitude": 37.05, "longitude": 127.05,
+             "is_active": True, "type": "drowsy_shelter"},
+            {"name": "고속도로휴게소B", "latitude": 37.06, "longitude": 127.06,
+             "is_active": True, "type": "highway_rest"},
+        ]
+        result = _run_pipeline(nodes, matrix, rest_candidates=candidates)
+        rest_nodes = [r for r in result if r.type == "rest_stop"]
+        assert len(rest_nodes) >= 1
+        assert rest_nodes[0].name == "고속도로휴게소B"
+
+    def test_drowsy_shelter_fallback_when_no_highway_rest(self):
+        """
+        highway_rest 후보가 없을 때 drowsy_shelter 로 폴백합니다.
+        """
+        nodes = _make_nodes(2)
+        matrix = _make_matrix(2, REST_PLAN_SEC + 1)
+        candidates = [
+            {"name": "졸음쉼터A", "latitude": 37.05, "longitude": 127.05,
+             "is_active": True, "type": "drowsy_shelter"},
+        ]
+        result = _run_pipeline(nodes, matrix, rest_candidates=candidates)
+        rest_nodes = [r for r in result if r.type == "rest_stop"]
+        assert len(rest_nodes) >= 1
+        assert rest_nodes[0].name == "졸음쉼터A"

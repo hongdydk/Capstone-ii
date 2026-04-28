@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS rest_stops (
     latitude       FLOAT NOT NULL,
     longitude      FLOAT NOT NULL,
     is_active      BOOLEAN NOT NULL DEFAULT TRUE,
-    direction      VARCHAR(10),
+    direction      VARCHAR(100),
     created_by_id  INTEGER REFERENCES users(id) ON DELETE SET NULL,
     scope          VARCHAR(10) DEFAULT 'private',
     note           TEXT,

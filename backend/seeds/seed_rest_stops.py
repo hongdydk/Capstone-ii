@@ -95,7 +95,7 @@ async def _fetch_highway_rests() -> list[dict]:
 
 
 async def seed() -> None:
-    conn = await asyncpg.connect(DATABASE_URL)
+    conn = await asyncpg.connect(DATABASE_URL, ssl=False)
     try:
         # ── 졸음쉼터 (한국도로공사 공공 데이터 CSV) ──────────────────────────
         drowsy_inserted = 0
@@ -153,4 +153,6 @@ async def seed() -> None:
 
 
 if __name__ == "__main__":
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     asyncio.run(seed())

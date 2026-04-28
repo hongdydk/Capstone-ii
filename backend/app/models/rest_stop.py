@@ -26,7 +26,7 @@ class RestStop(Base):
     latitude: Mapped[float] = mapped_column(Float, nullable=False)
     longitude: Mapped[float] = mapped_column(Float, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    direction: Mapped[str | None] = mapped_column(String(10))
+    direction: Mapped[str | None] = mapped_column(String(100))
     created_by_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

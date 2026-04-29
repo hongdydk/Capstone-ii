@@ -18,6 +18,10 @@ class ExtraStopSchema(BaseModel):
     lat: float
     lon: float
     note: str | None = None
+    # 도착 허용 시간 범위 — 출발 기준 경과 초
+    # 예) earliest_sec=3600, latest_sec=7200 → 출발 후 1~2시간 사이 도착
+    earliest_sec: int | None = None
+    latest_sec: int | None = None
 
 
 class OptimizeRequest(BaseModel):

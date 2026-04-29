@@ -47,7 +47,12 @@ async def optimize(req: OptimizeRequest, db: AsyncSession = Depends(get_db)):
 
     for es in extra_stops:
         if es.stop_type == "waypoint":
-            waypoints_raw.append({"name": es.name, "lat": es.lat, "lon": es.lon})
+            wp: dict = {"name": es.name, "lat": es.lat, "lon": es.lon}
+            if es.earliest_sec is not None:
+                wp["earliest_sec"] = es.earliest_sec
+            if es.latest_sec is not None:
+                wp["latest_sec"] = es.latest_sec
+            waypoints_raw.append(wp)
         elif es.stop_type == "destination":
             # 기존 목적지를 경유지로 후퇴
             waypoints_raw.append(
@@ -69,7 +74,6 @@ async def optimize(req: OptimizeRequest, db: AsyncSession = Depends(get_db)):
     ]
     nodes += waypoints_raw
     nodes.append({"name": dest_name, "lat": dest_lat, "lon": dest_lon})
-
     veh = _resolve_vehicle_params(trip, req)
 
     # ------------------------------------------------------------------
@@ -90,7 +94,26 @@ async def optimize(req: OptimizeRequest, db: AsyncSession = Depends(get_db)):
     # ------------------------------------------------------------------
     # 3. OR-Tools TSP 경유지 순서 최적화
     # ------------------------------------------------------------------
-    tsp_order = solve_tsp(time_matrix)
+    # time_windows 구성: waypoints JSONB 또는 extra_stops의 earliest_sec/latest_sec 사용
+    # 출발지/목적지는 제약 없음 (0 ~ 매우 큰 값)
+    _INF = 10_000_000
+    time_windows: list[tuple[int, int]] | None = None
+
+    # waypoints_raw + extra_stops 에서 time window 수집
+    tw_list: list[tuple[int, int]] = [(0, 0)]  # 출발지 고정 (경과 0초)
+    has_any_tw = False
+    for wp in waypoints_raw:
+        e = wp.get("earliest_sec")
+        l = wp.get("latest_sec")
+        if e is not None or l is not None:
+            has_any_tw = True
+        tw_list.append((e or 0, l or _INF))
+    tw_list.append((0, _INF))  # 목적지 제약 없음
+
+    if has_any_tw:
+        time_windows = tw_list
+
+    tsp_order = solve_tsp(time_matrix, time_windows=time_windows)
 
     ordered_nodes = [
         RouteNode(

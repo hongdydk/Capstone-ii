@@ -1,13 +1,27 @@
 from ortools.constraint_solver import pywrapcp, routing_enums_pb2
 
 
-def solve_tsp(time_matrix: list[list[int]], *, time_limit_seconds: int = 10) -> list[int]:
+def solve_tsp(
+    time_matrix: list[list[int]],
+    *,
+    time_limit_seconds: int = 10,
+    time_windows: list[tuple[int, int]] | None = None,
+) -> list[int]:
     """
     OR-Tools TSP로 경유지 방문 순서를 최적화합니다.
 
     - 인덱스 0: 출발지 (고정)
     - 인덱스 1 ~ n-2: 최적화 대상 경유지
     - 인덱스 n-1: 목적지 (고정 — 마지막 방문)
+
+    Args:
+        time_matrix       : NxN 이동 시간 행렬 (초 단위)
+        time_limit_seconds: OR-Tools 탐색 시간 제한
+        time_windows      : 노드별 도착 허용 시간 범위 [(earliest_sec, latest_sec), ...]
+                            None 이면 시간 제약 없음.
+                            인덱스는 time_matrix 와 동일. 단위는 출발 기준 경과 초.
+                            예) [(0, 0), (3600, 7200), (0, 86400), (0, 86400)]
+                              → index 1 노드에 출발 후 1h~2h 사이 도착 강제
 
     Returns:
         최적 방문 인덱스 목록 (0번 출발지 포함, n-1번 목적지 제외)
@@ -27,6 +41,22 @@ def solve_tsp(time_matrix: list[list[int]], *, time_limit_seconds: int = 10) -> 
 
     transit_id = routing.RegisterTransitCallback(transit_callback)
     routing.SetArcCostEvaluatorOfAllVehicles(transit_id)
+
+    # ── Time Window 제약 ──────────────────────────────────────────────────
+    if time_windows:
+        # 최대 가능 시간 = 모든 구간 합산 (상한으로 사용)
+        max_horizon = sum(max(row) for row in time_matrix)
+        routing.AddDimension(
+            transit_id,
+            slack_max=max_horizon,   # 대기 허용 시간 상한
+            capacity=max_horizon,    # 누적 시간 상한
+            fix_start_cumul_to_zero=True,
+            name="Time",
+        )
+        time_dim = routing.GetDimensionOrDie("Time")
+        for node_idx, (earliest, latest) in enumerate(time_windows):
+            routing_idx = manager.NodeToIndex(node_idx)
+            time_dim.CumulVar(routing_idx).SetRange(earliest, latest)
 
     search_params = pywrapcp.DefaultRoutingSearchParameters()
     search_params.first_solution_strategy = (

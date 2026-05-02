@@ -9,7 +9,8 @@ from app.core.database import Base
 
 
 class RestStopType(str, enum.Enum):
-    highway_rest = "highway_rest"
+    truck_rest = "truck_rest"      # 화물차 전용 휴게소 (국가물류통합정보센터)
+    highway_rest = "highway_rest"  # 일반 고속도로 휴게소
     drowsy_shelter = "drowsy_shelter"
     depot = "depot"
     custom = "custom"

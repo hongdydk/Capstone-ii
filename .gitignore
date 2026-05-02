@@ -24,3 +24,24 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+
+# GraphHopper Engine — 대용량 / 빌드 산출물 (서버에서 직접 생성)
+Engine/*NODELINKDATA/
+Engine/graph-cache/
+Engine/logs/
+Engine/*.osm.pbf
+Engine/graphhopper-web-*.jar
+
+# 테스트 캐시
+.pytest_cache/
+
+# 로그
+*.log
+logs/
+
+# DB 덤프 / 백업
+*.sql.gz
+*.dump
+
+# 임시 스크립트
+backend/seeds/_*.py

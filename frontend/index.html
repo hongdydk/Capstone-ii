@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RouteOn — 화물차 경로 최적화</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Noto Sans KR', sans-serif; display: flex; height: 100vh; overflow: hidden; background: #f5f5f5; }
+
+  #panel {
+    width: 340px; min-width: 300px; background: #fff;
+    display: flex; flex-direction: column; border-right: 1px solid #ddd;
+    z-index: 1000;
+  }
+  #panel-header {
+    padding: 16px; background: #1a56db; color: #fff;
+  }
+  #panel-header h1 { font-size: 18px; font-weight: 700; }
+  #panel-header p  { font-size: 12px; opacity: .8; margin-top: 2px; }
+
+  #panel-body { flex: 1; overflow-y: auto; padding: 12px; }
+
+  .section-title {
+    font-size: 11px; font-weight: 700; color: #6b7280;
+    text-transform: uppercase; letter-spacing: .05em;
+    margin: 12px 0 6px;
+  }
+
+  #profile-select {
+    width: 100%; padding: 7px 10px; border: 1px solid #d1d5db;
+    border-radius: 6px; font-size: 14px; background: #fff;
+  }
+
+  #nodes-list { display: flex; flex-direction: column; gap: 6px; }
+
+  .node-item {
+    display: flex; align-items: center; gap: 6px;
+    background: #f9fafb; border: 1px solid #e5e7eb;
+    border-radius: 6px; padding: 7px 10px; font-size: 13px;
+  }
+  .node-badge {
+    width: 22px; height: 22px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; color: #fff; flex-shrink: 0;
+  }
+  .badge-origin      { background: #16a34a; }
+  .badge-waypoint    { background: #2563eb; }
+  .badge-destination { background: #dc2626; }
+  .node-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .node-remove {
+    background: none; border: none; cursor: pointer;
+    color: #9ca3af; font-size: 16px; line-height: 1; padding: 0 2px;
+  }
+  .node-remove:hover { color: #ef4444; }
+
+  .add-hint {
+    font-size: 12px; color: #6b7280; text-align: center;
+    padding: 8px; border: 1px dashed #d1d5db; border-radius: 6px;
+  }
+
+  #click-mode-row {
+    display: flex; gap: 6px; margin-top: 6px;
+  }
+  .mode-btn {
+    flex: 1; padding: 6px; border: 1px solid #d1d5db; border-radius: 6px;
+    background: #fff; cursor: pointer; font-size: 12px; text-align: center;
+    transition: all .15s;
+  }
+  .mode-btn.active {
+    background: #eff6ff; border-color: #3b82f6; color: #1d4ed8; font-weight: 600;
+  }
+
+  #btn-calc {
+    width: 100%; padding: 10px; background: #1a56db; color: #fff;
+    border: none; border-radius: 8px; font-size: 15px; font-weight: 600;
+    cursor: pointer; margin-top: 14px; transition: background .15s;
+  }
+  #btn-calc:hover:not(:disabled) { background: #1e40af; }
+  #btn-calc:disabled { background: #93c5fd; cursor: not-allowed; }
+
+  #btn-clear {
+    width: 100%; padding: 7px; background: #fff; color: #6b7280;
+    border: 1px solid #d1d5db; border-radius: 8px; font-size: 13px;
+    cursor: pointer; margin-top: 6px;
+  }
+  #btn-clear:hover { background: #f9fafb; }
+
+  #result-box {
+    display: none; margin-top: 12px; padding: 12px;
+    background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px;
+  }
+  #result-box h3 { font-size: 13px; font-weight: 700; color: #15803d; margin-bottom: 8px; }
+
+  #alt-tabs {
+    display: none; gap: 4px; margin-bottom: 8px;
+  }
+  .alt-tab-btn {
+    flex: 1; padding: 5px 4px; border: 1px solid #d1d5db; border-radius: 6px;
+    background: #fff; cursor: pointer; font-size: 12px; font-weight: 600;
+    color: #6b7280; transition: all .15s;
+  }
+  .alt-tab-btn.active {
+    background: #eff6ff; border-color: #3b82f6; color: #1d4ed8;
+  }
+  .alt-tab-btn:nth-child(2).active { background: #f0fdf4; border-color: #16a34a; color: #15803d; }
+  .alt-tab-btn:nth-child(3).active { background: #fef9c3; border-color: #ca8a04; color: #92400e; }
+
+  .stat-row { display: flex; justify-content: space-between; font-size: 13px; margin: 3px 0; }
+  .stat-label { color: #6b7280; }
+  .stat-value { font-weight: 600; }
+
+  #route-steps { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
+  .step-item {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 12px; padding: 5px 8px; border-radius: 5px;
+  }
+  .step-item.origin      { background: #dcfce7; }
+  .step-item.waypoint    { background: #dbeafe; }
+  .step-item.destination { background: #fee2e2; }
+  .step-item.rest_stop   { background: #fef9c3; }
+  .step-dot {
+    width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+  }
+  .dot-origin      { background: #16a34a; }
+  .dot-waypoint    { background: #2563eb; }
+  .dot-destination { background: #dc2626; }
+  .dot-rest_stop   { background: #ca8a04; }
+
+  .segment-time {
+    font-size: 11px; color: #6b7280; text-align: center;
+    padding: 2px 0 2px 16px;
+  }
+  .segment-time::before { content: '↕ '; }
+
+  .rest-options {
+    margin: 2px 0 4px 18px;
+    display: none;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .rest-options.open { display: flex; }
+  .rest-option-btn {
+    background: #fff; border: 1px solid #d1d5db; border-radius: 5px;
+    padding: 4px 8px; font-size: 11px; cursor: pointer; text-align: left;
+    color: #374151;
+  }
+  .rest-option-btn:hover { background: #fef9c3; border-color: #ca8a04; }
+  .rest-option-btn.selected { background: #fef9c3; border-color: #ca8a04; font-weight: 600; }
+  .rest-change-btn {
+    background: none; border: none; cursor: pointer;
+    font-size: 10px; color: #9ca3af; margin-left: auto; padding: 0 4px;
+    flex-shrink: 0; white-space: nowrap;
+  }
+  .rest-change-btn:hover { color: #ca8a04; }
+  .rest-options {
+    margin: 2px 0 4px 18px;
+    display: none;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .rest-options.open { display: flex; }
+  .rest-option-btn {
+    background: #fff; border: 1px solid #d1d5db; border-radius: 5px;
+    padding: 4px 8px; font-size: 11px; cursor: pointer; text-align: left;
+    color: #374151;
+  }
+  .rest-option-btn:hover { background: #fef9c3; border-color: #ca8a04; }
+  .rest-option-btn.selected { background: #fef9c3; border-color: #ca8a04; font-weight: 600; }
+  .rest-change-btn {
+    background: none; border: none; cursor: pointer;
+    font-size: 10px; color: #9ca3af; margin-left: auto; padding: 0 2px;
+    flex-shrink: 0;
+  }
+  .rest-change-btn:hover { color: #ca8a04; }
+  #error-box {
+    display: none; margin-top: 10px; padding: 10px;
+    background: #fef2f2; border: 1px solid #fca5a5;
+    border-radius: 6px; font-size: 13px; color: #b91c1c;
+  }
+
+  #loading {
+    display: none; text-align: center; padding: 14px; color: #6b7280; font-size: 13px;
+  }
+  .spinner {
+    display: inline-block; width: 18px; height: 18px;
+    border: 2px solid #d1d5db; border-top-color: #1a56db;
+    border-radius: 50%; animation: spin .7s linear infinite; margin-right: 6px;
+    vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  #map { flex: 1; position: relative; }
+
+  .leaflet-popup-content { font-size: 13px; }
+
+  #truck-rest-toggle {
+    position: absolute; bottom: 24px; right: 12px; z-index: 1000;
+    background: #fff; border: 2px solid #d1d5db; border-radius: 8px;
+    padding: 7px 12px; font-size: 12px; font-weight: 600; cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0,0,0,.18); display: flex; align-items: center; gap: 6px;
+    color: #374151; transition: all .15s;
+  }
+  #truck-rest-toggle.active { background: #fffbeb; border-color: #f59e0b; color: #92400e; }
+  #truck-rest-toggle .dot-tr {
+    width: 10px; height: 10px; border-radius: 50%; background: #f59e0b; flex-shrink: 0;
+  }
+</style>
+</head>
+<body>
+
+<div id="panel">
+  <div id="panel-header">
+    <h1>🚛 RouteOn</h1>
+    <p>화물차 법정 휴게 규정 자동 반영 경로 최적화</p>
+  </div>
+  <div id="panel-body">
+
+    <div class="section-title">차량 프로필</div>
+    <select id="profile-select">
+      <option value="truck">🚛 화물차 (truck) — hgv 제한 반영</option>
+      <option value="car">🚗 승용차 (car)</option>
+    </select>
+
+    <div class="section-title">경유지 설정</div>
+    <div id="click-mode-row">
+      <button class="mode-btn active" data-mode="origin">📍 출발지</button>
+      <button class="mode-btn" data-mode="waypoint">🔵 경유지</button>
+      <button class="mode-btn" data-mode="destination">🏁 목적지</button>
+    </div>
+    <div class="add-hint" style="margin-top:6px;">지도를 클릭해 포인트를 추가하세요</div>
+
+    <div class="section-title" style="margin-top:14px;">입력된 노드</div>
+    <div id="nodes-list"></div>
+
+    <div id="error-box"></div>
+    <div id="loading"><span class="spinner"></span>경로 계산 중…</div>
+
+    <button id="btn-calc">경로 계산</button>
+    <button id="btn-clear">전체 초기화</button>
+
+    <div id="result-box">
+      <h3>✅ 계산 완료</h3>
+      <div id="alt-tabs"></div>
+      <div class="stat-row">
+        <span class="stat-label">총 거리</span>
+        <span class="stat-value" id="r-dist">—</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">예상 시간</span>
+        <span class="stat-value" id="r-time">—</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">휴게소 삽입</span>
+        <span class="stat-value" id="r-rest">—</span>
+      </div>
+      <div id="route-steps"></div>
+    </div>
+
+  </div>
+</div>
+
+<div id="map">
+  <button id="truck-rest-toggle" title="화물차 전용 휴게소 표시/숨김">
+    <span class="dot-tr"></span>화물차 휴게소
+  </button>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ── 지도 초기화 ──────────────────────────────────────────────────────────────
+const map = L.map('map').setView([36.5, 127.8], 7);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+  attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+}).addTo(map);
+
+// ── 상태 ─────────────────────────────────────────────────────────────────────
+let nodes = [];          // {name, lat, lon, type}
+let clickMode = 'origin';
+let markers = [];        // Leaflet 마커
+let routeLayer = null;   // 경로 폴리라인
+let restMarkers = [];    // 휴게소 마커 (경로 위)
+let truckRestMarkers = [];  // 화물차 전용 휴게소 전체 레이어
+let truckRestVisible = false;
+
+// ── 아이콘 팩토리 ─────────────────────────────────────────────────────────────
+function makeIcon(color, text, size = 28) {
+  return L.divIcon({
+    className: '',
+    html: `<div style="
+      background:${color};color:#fff;width:${size}px;height:${size}px;
+      border-radius:50%;display:flex;align-items:center;justify-content:center;
+      font-size:${Math.round(size*0.43)}px;font-weight:700;border:2px solid rgba(0,0,0,.25);
+      box-shadow:0 2px 4px rgba(0,0,0,.3);">${text}</div>`,
+    iconSize: [size, size],
+    iconAnchor: [size/2, size/2],
+    popupAnchor: [0, -size/2],
+  });
+}
+const ICONS = {
+  origin:      () => makeIcon('#16a34a', '출'),
+  waypoint:    (i) => makeIcon('#2563eb', i),
+  destination: () => makeIcon('#dc2626', '착'),
+  rest_stop:   () => makeIcon('#ca8a04', '휴'),
+  truck_rest:  () => makeIcon('#f59e0b', 'T', 20),  // 화물차 전용 소형 마커
+};
+
+// ── 화물차 휴게소 레이어 ────────────────────────────────────────────────────────
+async function loadTruckRests() {
+  if (truckRestMarkers.length > 0) return; // 이미 로드됨
+  try {
+    const data = await fetch('http://localhost:8000/demo/truck-rests').then(r => r.json());
+    data.forEach(r => {
+      const m = L.marker([r.lat, r.lon], { icon: ICONS.truck_rest() })
+        .bindPopup(`<b>🚛 ${r.name}</b><br><span style="color:#6b7280;font-size:11px">${r.type}${r.direction ? '<br>' + r.direction : ''}</span>`);
+      truckRestMarkers.push(m);
+    });
+  } catch(e) { console.warn('truck-rests 로드 실패:', e); }
+}
+
+function showTruckRests(show) {
+  truckRestVisible = show;
+  const btn = document.getElementById('truck-rest-toggle');
+  if (show) {
+    truckRestMarkers.forEach(m => m.addTo(map));
+    btn.classList.add('active');
+    btn.querySelector('.dot-tr').style.background = '#f59e0b';
+  } else {
+    truckRestMarkers.forEach(m => { try { map.removeLayer(m); } catch(e){} });
+    btn.classList.remove('active');
+  }
+}
+
+document.getElementById('truck-rest-toggle').addEventListener('click', async () => {
+  await loadTruckRests();
+  showTruckRests(!truckRestVisible);
+});
+
+// 페이지 로드 시 백그라운드로 미리 fetch
+loadTruckRests();
+
+// ── 클릭 모드 토글 ────────────────────────────────────────────────────────────
+document.querySelectorAll('.mode-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    clickMode = btn.dataset.mode;
+  });
+});
+
+// ── 지도 클릭 → 노드 추가 ─────────────────────────────────────────────────────
+map.on('click', (e) => {
+  const { lat, lng } = e.latlng;
+  const type = clickMode;
+
+  // 출발지/목적지는 1개만 허용
+  if ((type === 'origin' || type === 'destination') && nodes.some(n => n.type === type)) {
+    nodes = nodes.filter(n => n.type !== type);
+  }
+
+  const label = type === 'origin' ? '출발지'
+              : type === 'destination' ? '목적지'
+              : `경유지 ${nodes.filter(n => n.type === 'waypoint').length + 1}`;
+
+  nodes.push({ name: label, lat, lon: lng, type });
+
+  // 경유지 추가 후 자동으로 경유지 모드 유지, 다음 클릭 준비
+  renderNodesList();
+  renderMarkers();
+});
+
+// ── 노드 목록 렌더링 ─────────────────────────────────────────────────────────
+function renderNodesList() {
+  const list = document.getElementById('nodes-list');
+  list.innerHTML = '';
+  if (nodes.length === 0) {
+    list.innerHTML = '<div class="add-hint">추가된 노드 없음</div>';
+    return;
+  }
+  nodes.forEach((node, idx) => {
+    const item = document.createElement('div');
+    item.className = 'node-item';
+    const badgeClass = `badge-${node.type === 'waypoint' ? 'waypoint' : node.type}`;
+    const badgeText = node.type === 'origin' ? '출'
+                    : node.type === 'destination' ? '착'
+                    : idx;
+    item.innerHTML = `
+      <div class="node-badge ${badgeClass}">${badgeText}</div>
+      <span class="node-label" title="${node.lat.toFixed(5)}, ${node.lon.toFixed(5)}">${node.name}</span>
+      <button class="node-remove" data-idx="${idx}" title="제거">×</button>`;
+    list.appendChild(item);
+  });
+  list.querySelectorAll('.node-remove').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      nodes.splice(+e.target.dataset.idx, 1);
+      renderNodesList();
+      renderMarkers();
+    });
+  });
+}
+
+// ── 마커 렌더링 ───────────────────────────────────────────────────────────────
+function renderMarkers() {
+  markers.forEach(m => map.removeLayer(m));
+  markers = [];
+  let wpCount = 0;
+  nodes.forEach(node => {
+    const icon = node.type === 'waypoint'
+      ? ICONS.waypoint(++wpCount)
+      : ICONS[node.type]();
+    const m = L.marker([node.lat, node.lon], { icon })
+      .bindPopup(`<b>${node.name}</b><br>${node.lat.toFixed(5)}, ${node.lon.toFixed(5)}`);
+    m.addTo(map);
+    markers.push(m);
+  });
+}
+
+// ── 경로 계산 ─────────────────────────────────────────────────────────────────
+let _lastData = null;
+let _activeAlt = 0;
+let _altPolylines = [];   // L.polyline per alternative
+let _altRoutes = [];      // mutable route copy per alternative (for polyline update)
+const ALT_COLORS = ['#1a56db', '#16a34a', '#ca8a04'];
+document.getElementById('btn-calc').addEventListener('click', async () => {
+  const errBox = document.getElementById('error-box');
+  errBox.style.display = 'none';
+
+  const origin = nodes.find(n => n.type === 'origin');
+  const dest   = nodes.find(n => n.type === 'destination');
+  if (!origin || !dest) {
+    showError('출발지와 목적지를 모두 지정해 주세요.');
+    return;
+  }
+
+  // 순서: [출발지, ...경유지, 목적지]
+  const waypoints = nodes.filter(n => n.type === 'waypoint');
+  const ordered = [origin, ...waypoints, dest];
+
+  const profile = document.getElementById('profile-select').value;
+  const payload = {
+    profile,
+    nodes: ordered.map(n => ({ name: n.name, lat: n.lat, lon: n.lon })),
+  };
+
+  setLoading(true);
+  document.getElementById('result-box').style.display = 'none';
+
+  try {
+    const resp = await fetch('http://localhost:8000/demo/route', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${resp.status}`);
+    }
+    const data = await resp.json();
+    _lastData = data;
+    renderResult(data);
+  } catch (e) {
+    showError(e.message);
+  } finally {
+    setLoading(false);
+  }
+});
+
+function renderResult(data) {
+  // 기존 레이어 초기화
+  _altPolylines.forEach(l => { try { map.removeLayer(l); } catch(e){} });
+  _altPolylines = [];
+  restMarkers.forEach(m => map.removeLayer(m));
+  restMarkers = [];
+  if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
+  _activeAlt = 0;
+
+  const alts = data.alternatives || [];
+  _altRoutes = alts.map(a => JSON.parse(JSON.stringify(a.route)));
+
+  // 대안별 폴리라인 레이어 생성
+  alts.forEach((alt, idx) => {
+    const color = ALT_COLORS[idx] || '#888';
+    const layer = L.polyline(alt.polyline, {
+      color, weight: idx === 0 ? 5 : 4, opacity: idx === 0 ? 0.85 : 0.3,
+    });
+    _altPolylines.push(layer);
+    if (idx === 0) layer.addTo(map);
+  });
+
+  if (_altPolylines[0]) map.fitBounds(_altPolylines[0].getBounds(), { padding: [40, 40] });
+
+  // 탭 렌더링
+  const tabsEl = document.getElementById('alt-tabs');
+  tabsEl.innerHTML = '';
+  if (alts.length > 1) {
+    alts.forEach((alt, idx) => {
+      const btn = document.createElement('button');
+      btn.className = 'alt-tab-btn' + (idx === 0 ? ' active' : '');
+      btn.textContent = alt.label;
+      btn.addEventListener('click', () => switchAlt(idx));
+      tabsEl.appendChild(btn);
+    });
+    tabsEl.style.display = 'flex';
+  } else {
+    tabsEl.style.display = 'none';
+  }
+
+  renderAltPanel(0);
+  document.getElementById('result-box').style.display = 'block';
+}
+
+function switchAlt(idx) {
+  if (idx === _activeAlt) return;
+  try {
+    _altPolylines[_activeAlt].setStyle({ weight: 4, opacity: 0.25 });
+    map.removeLayer(_altPolylines[_activeAlt]);
+  } catch(e){}
+  if (_altPolylines[idx]) {
+    _altPolylines[idx].setStyle({ weight: 5, opacity: 0.9 });
+    _altPolylines[idx].addTo(map);
+    map.fitBounds(_altPolylines[idx].getBounds(), { padding: [40, 40] });
+  }
+  document.querySelectorAll('.alt-tab-btn').forEach((b, i) => {
+    b.classList.toggle('active', i === idx);
+  });
+  restMarkers.forEach(m => map.removeLayer(m));
+  restMarkers = [];
+  _activeAlt = idx;
+  renderAltPanel(idx);
+}
+
+function renderAltPanel(idx) {
+  const alt = (_lastData && _lastData.alternatives || [])[idx];
+  if (!alt) return;
+
+  // 통계
+  document.getElementById('r-dist').textContent = `${alt.total_distance_km} km`;
+  const h = Math.floor(alt.estimated_duration_min / 60);
+  const m = Math.round(alt.estimated_duration_min % 60);
+  document.getElementById('r-time').textContent = h > 0 ? `${h}시간 ${m}분` : `${m}분`;
+  document.getElementById('r-rest').textContent = `${alt.rest_stops_count}곳`;
+
+  // 휴게소 마커
+  alt.route.forEach(node => {
+    if (node.type === 'rest_stop') {
+      const mk = L.marker([node.lat, node.lon], { icon: ICONS.rest_stop() })
+        .bindPopup(`<b>🛖 ${node.name}</b><br>휴식 ${node.min_rest_minutes ?? 15}분 이상`);
+      mk.addTo(map);
+      restMarkers.push(mk);
+    }
+  });
+
+  // 경로 단계 목록
+  const steps = document.getElementById('route-steps');
+  steps.innerHTML = '';
+  let restIdx = 0;
+
+  alt.route.forEach((node, nodeIdx) => {
+    const div = document.createElement('div');
+    div.className = `step-item ${node.type}`;
+    const typeLabel = { origin: '출발', waypoint: '경유', destination: '도착', rest_stop: '휴게' }[node.type] || '';
+
+    if (node.type === 'rest_stop') {
+      const opts = (alt.rest_stop_options || [])[restIdx] || [];
+      const ri = restIdx;
+      div.innerHTML = `
+        <div class="step-dot dot-rest_stop"></div>
+        <span>[휴게] <span class="rest-name-label">${node.name}</span> (${node.min_rest_minutes ?? 15}분 휴식)</span>
+        ${opts.length > 1 ? `<button class="rest-change-btn" data-ri="${ri}">▾ 변경</button>` : ''}`;
+      steps.appendChild(div);
+
+      if (opts.length > 1) {
+        const optsDiv = document.createElement('div');
+        optsDiv.className = 'rest-options';
+        optsDiv.dataset.ri = ri;
+        opts.forEach((opt, oi) => {
+          const btn = document.createElement('button');
+          btn.className = 'rest-option-btn' + (oi === 0 ? ' selected' : '');
+          btn.textContent = opt.name + (opt.type === 'drowsy_shelter' ? ' (졸음쉼터)' : '');
+          btn.addEventListener('click', async () => {
+            optsDiv.querySelectorAll('.rest-option-btn').forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+            div.querySelector('.rest-name-label').textContent = opt.name;
+            optsDiv.classList.remove('open');
+            // _altRoutes 업데이트
+            let ri2 = 0;
+            for (let i = 0; i < _altRoutes[_activeAlt].length; i++) {
+              if (_altRoutes[_activeAlt][i].type === 'rest_stop') {
+                if (ri2 === ri) {
+                  _altRoutes[_activeAlt][i] = { ..._altRoutes[_activeAlt][i], name: opt.name, lat: +opt.lat, lon: +opt.lon };
+                  break;
+                }
+                ri2++;
+              }
+            }
+            // 마커 교체
+            if (restMarkers[ri]) {
+              map.removeLayer(restMarkers[ri]);
+              const nm = L.marker([+opt.lat, +opt.lon], { icon: ICONS.rest_stop() })
+                .bindPopup(`<b>🛖 ${opt.name}</b><br>휴식 15분 이상`).addTo(map);
+              restMarkers[ri] = nm;
+            }
+            // 폴리라인 갱신
+            await updatePolyline();
+          });
+          optsDiv.appendChild(btn);
+        });
+        steps.appendChild(optsDiv);
+        div.querySelector('.rest-change-btn').addEventListener('click', () => {
+          optsDiv.classList.toggle('open');
+        });
+      }
+      restIdx++;
+    } else {
+      div.innerHTML = `
+        <div class="step-dot dot-${node.type}"></div>
+        <span>[${typeLabel}] ${node.name}</span>`;
+      steps.appendChild(div);
+    }
+
+    if (nodeIdx < alt.route.length - 1 && alt.legs && alt.legs[nodeIdx] != null) {
+      const legMin = alt.legs[nodeIdx];
+      const lh = Math.floor(legMin / 60);
+      const lm = Math.round(legMin % 60);
+      const seg = document.createElement('div');
+      seg.className = 'segment-time';
+      seg.textContent = lh > 0 ? `${lh}시간 ${lm}분` : `${lm}분`;
+      steps.appendChild(seg);
+    }
+  });
+}
+
+async function updatePolyline() {
+  const profile = document.getElementById('profile-select').value;
+  const activeRoute = _altRoutes[_activeAlt];
+  try {
+    const resp = await fetch('http://localhost:8000/demo/polyline', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        profile,
+        nodes: activeRoute.map(n => ({ name: n.name, lat: n.lat, lon: n.lon })),
+      }),
+    });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    try { map.removeLayer(_altPolylines[_activeAlt]); } catch(e){}
+    const color = ALT_COLORS[_activeAlt] || '#1a56db';
+    _altPolylines[_activeAlt] = L.polyline(data.polyline, { color, weight: 5, opacity: 0.85 }).addTo(map);
+  } catch(e) { console.warn('polyline update failed', e); }
+}
+
+// ── 초기화 ────────────────────────────────────────────────────────────────────
+document.getElementById('btn-clear').addEventListener('click', () => {
+  nodes = [];
+  markers.forEach(m => map.removeLayer(m)); markers = [];
+  restMarkers.forEach(m => map.removeLayer(m)); restMarkers = [];
+  _altPolylines.forEach(l => { try { map.removeLayer(l); } catch(e){} }); _altPolylines = [];
+  if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
+  _lastData = null; _activeAlt = 0; _altRoutes = [];
+  document.getElementById('alt-tabs').innerHTML = '';
+  document.getElementById('alt-tabs').style.display = 'none';
+  document.getElementById('result-box').style.display = 'none';
+  document.getElementById('error-box').style.display = 'none';
+  renderNodesList();
+});
+
+// ── 유틸 ─────────────────────────────────────────────────────────────────────
+function setLoading(on) {
+  document.getElementById('loading').style.display = on ? 'block' : 'none';
+  document.getElementById('btn-calc').disabled = on;
+}
+function showError(msg) {
+  const box = document.getElementById('error-box');
+  box.textContent = '⚠️ ' + msg;
+  box.style.display = 'block';
+}
+
+// 초기 렌더
+renderNodesList();
+</script>
+</body>
+</html>

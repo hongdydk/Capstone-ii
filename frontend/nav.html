@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>RouteOn — 네비게이션 테스트</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.3/dist/maplibre-gl.css"/>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body { font-family: 'Noto Sans KR', sans-serif; background: #111; color: #fff; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+
+/* ── 상단 안내 패널 ── */
+#nav-header {
+  background: #1a56db; padding: 12px 16px;
+  display: flex; align-items: center; gap: 12px;
+  min-height: 72px; flex-shrink: 0; z-index: 10;
+}
+#nav-sign {
+  width: 52px; height: 52px; border-radius: 10px;
+  background: #fff; color: #111; font-size: 28px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; font-weight: 700;
+}
+#nav-text { flex: 1; }
+#nav-instruction { font-size: 17px; font-weight: 700; line-height: 1.3; }
+#nav-dist-next   { font-size: 13px; color: #bfdbfe; margin-top: 3px; }
+
+/* ── 진행 바 ── */
+#progress-bar-wrap { height: 4px; background: #334155; flex-shrink: 0; z-index: 10; }
+#progress-bar { height: 100%; background: #3b82f6; width: 0%; transition: width .5s; }
+
+/* ── 지도 ── */
+#map { flex: 1; min-height: 0; position: relative; }
+
+/* ── 하단 정보 ── */
+#nav-footer {
+  background: #1e293b; padding: 10px 16px;
+  display: flex; justify-content: space-around; flex-shrink: 0; z-index: 10;
+}
+.footer-stat { text-align: center; }
+.footer-stat .val { font-size: 18px; font-weight: 700; }
+.footer-stat .lbl { font-size: 11px; color: #94a3b8; margin-top: 2px; }
+
+/* ── 입력 패널 (시작 전) ── */
+#setup-panel {
+  position: absolute; inset: 0; background: rgba(0,0,0,.88);
+  display: flex; align-items: center; justify-content: center; z-index: 3000;
+}
+#setup-box {
+  background: #1e293b; border-radius: 12px; padding: 24px;
+  width: 92%; max-width: 480px;
+}
+#setup-box h2 { font-size: 18px; margin-bottom: 16px; color: #93c5fd; }
+.setup-row { margin-bottom: 12px; }
+.setup-row label { font-size: 12px; color: #94a3b8; display: block; margin-bottom: 4px; }
+.setup-row input, .setup-row select {
+  width: 100%; padding: 8px 10px; border-radius: 6px;
+  border: 1px solid #334155; background: #0f172a; color: #fff; font-size: 14px;
+}
+#node-rows { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.node-row { display: flex; gap: 6px; align-items: flex-start; }
+.node-row-inner { flex: 1; position: relative; }
+.node-search {
+  width: 100%; padding: 6px 8px; border-radius: 6px;
+  border: 1px solid #334155; background: #0f172a; color: #fff; font-size: 13px;
+}
+.node-search.resolved { border-color: #22c55e; }
+.node-latlng { font-size: 10px; color: #64748b; margin-top: 2px; padding-left: 2px; height: 14px; }
+.node-dropdown {
+  display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 5000;
+  background: #1e293b; border: 1px solid #334155; border-radius: 6px;
+  margin-top: 3px; max-height: 200px; overflow-y: auto;
+}
+.node-dropdown.open { display: block; }
+.dd-item {
+  padding: 8px 10px; cursor: pointer; border-bottom: 1px solid #0f172a;
+  font-size: 12px;
+}
+.dd-item:hover { background: #334155; }
+.dd-name { font-weight: 700; color: #e2e8f0; }
+.dd-addr { color: #64748b; margin-top: 2px; font-size: 11px; }
+.node-row button { background: #ef4444; border: none; border-radius: 6px; color: #fff; padding: 6px 10px; cursor: pointer; font-size: 13px; flex-shrink: 0; }
+#btn-add-node { background: #334155; border: none; border-radius: 6px; color: #cbd5e1; padding: 7px 12px; cursor: pointer; font-size: 13px; width: 100%; margin-bottom: 10px; }
+#btn-start {
+  width: 100%; padding: 12px; background: #1a56db; color: #fff;
+  border: none; border-radius: 8px; font-size: 16px; font-weight: 700; cursor: pointer;
+}
+#btn-start:hover { background: #1e40af; }
+
+/* ── 오버레이 버튼들 ── */
+
+
+#sim-controls {
+  position: absolute; bottom: 14px; right: 10px; z-index: 100;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.sim-btn {
+  background: rgba(30,41,59,.92); border: 1px solid #334155;
+  border-radius: 8px; color: #cbd5e1; padding: 9px 14px;
+  font-size: 13px; cursor: pointer; white-space: nowrap;
+}
+.sim-btn:hover { background: #334155; }
+.sim-btn.active { background: #1a56db; border-color: #3b82f6; color: #fff; }
+
+/* ── 조작 패널 ── */
+#ctrl-panel {
+  position: absolute; bottom: 14px; left: 10px; z-index: 100;
+  background: rgba(30,41,59,.93); border-radius: 10px; padding: 11px 14px;
+  display: flex; flex-direction: column; gap: 9px; min-width: 180px;
+}
+.ctrl-row { display: flex; align-items: center; gap: 8px; }
+.ctrl-label { font-size: 11px; color: #94a3b8; white-space: nowrap; min-width: 48px; }
+.ctrl-val { font-size: 11px; color: #e2e8f0; min-width: 38px; text-align: right; }
+#pitch-slider, #speed-slider { flex: 1; accent-color: #3b82f6; min-width: 0; height: 4px; cursor: pointer; }
+#key-hint { font-size: 11px; color: #64748b; border-top: 1px solid #334155; padding-top: 8px; line-height: 2; }
+#key-hint kbd { background:#334155; border-radius:4px; padding:1px 6px; color:#e2e8f0; font-size:11px; font-family:monospace; }
+#cruise-badge { display:none; color:#22c55e; font-weight:700; font-size:11px; margin-left:4px; }
+
+
+#pause-banner {
+  display: none; position: absolute; top: 60px; left: 50%; transform: translateX(-50%);
+  background: #854d0e; color: #fef9c3; border: 2px solid #fbbf24;
+  border-radius: 10px; padding: 12px 22px;
+  font-size: 15px; font-weight: 700; z-index: 200; white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0,0,0,.5);
+}
+</style>
+</head>
+<body>
+
+<!-- 설정 패널 -->
+<div id="setup-panel">
+  <div id="setup-box">
+    <h2>🚛 RouteOn 네비 테스트</h2>
+    <div class="setup-row">
+      <label>차량 프로필</label>
+      <select id="sel-profile">
+        <option value="truck">화물차 (truck)</option>
+        <option value="car">승용차 (car)</option>
+      </select>
+    </div>
+    <div class="setup-row">
+      <label>경유지 — 출발지 → ... → 목적지 순서</label>
+    </div>
+    <div id="node-rows">
+      <div class="node-row">
+        <div class="node-row-inner">
+          <input class="node-search" placeholder="출발지 검색 (예: 서울시청)" autocomplete="off">
+          <div class="node-latlng"></div>
+          <div class="node-dropdown"></div>
+        </div>
+        <button onclick="removeNode(this)">×</button>
+      </div>
+      <div class="node-row">
+        <div class="node-row-inner">
+          <input class="node-search" placeholder="목적지 검색 (예: 부산시청)" autocomplete="off">
+          <div class="node-latlng"></div>
+          <div class="node-dropdown"></div>
+        </div>
+        <button onclick="removeNode(this)">×</button>
+      </div>
+    </div>
+    <button id="btn-add-node" onclick="addNode()">+ 노드 추가</button>
+    <button id="btn-start" onclick="startNav()">네비게이션 시작</button>
+  </div>
+</div>
+
+<!-- 상단 안내 -->
+<div id="nav-header">
+  <div id="nav-sign">—</div>
+  <div id="nav-text">
+    <div id="nav-instruction">경로를 불러오는 중…</div>
+    <div id="nav-dist-next"></div>
+  </div>
+</div>
+<div id="progress-bar-wrap"><div id="progress-bar"></div></div>
+
+<!-- 지도 -->
+<div id="map">
+  <div id="pause-banner"></div>
+  <div id="ctrl-panel">
+    <div class="ctrl-row">
+      <span class="ctrl-label">🎥 기울기</span>
+      <input id="pitch-slider" type="range" min="0" max="70" value="45"
+        oninput="map.setPitch(+this.value); document.getElementById('pitch-val').textContent=this.value">
+      <span class="ctrl-val"><span id="pitch-val">45</span>°</span>
+    </div>
+    <div class="ctrl-row">
+      <span class="ctrl-label">⚡ 배속</span>
+      <input id="speed-slider" type="range" min="1" max="500" value="10"
+        oninput="onSpeedChange(+this.value)">
+      <span class="ctrl-val" id="speed-val">×10</span>
+    </div>
+    <div id="key-hint">
+      <kbd>W</kbd> / <kbd>↑</kbd> 주행 &nbsp; <kbd>S</kbd> / <kbd>↓</kbd> 정지<br>
+      <kbd>Space</kbd> 크루즈<span id="cruise-badge"> ● ON</span>
+    </div>
+  </div>
+  <div id="sim-controls">
+    <button class="sim-btn" id="btn-sim" onclick="toggleSim()">▶ 크루즈</button>
+    <button class="sim-btn" onclick="resetNav()">↺ 처음으로</button>
+  </div>
+</div>
+
+<!-- 하단 정보 -->
+<div id="nav-footer">
+  <div class="footer-stat"><div class="val" id="f-remain-dist">—</div><div class="lbl">남은 거리</div></div>
+  <div class="footer-stat"><div class="val" id="f-remain-time">—</div><div class="lbl">예상 시간</div></div>
+  <div class="footer-stat"><div class="val" id="f-speed">—</div><div class="lbl">현재 속도</div></div>
+  <div class="footer-stat"><div class="val" id="f-step">—</div><div class="lbl">단계</div></div>
+</div>
+
+<script src="https://unpkg.com/maplibre-gl@4.1.3/dist/maplibre-gl.js"></script>
+<script>
+// ── MapLibre 초기화 ────────────────────────────────────────────────────────────
+const OSM_STYLE = {
+  version: 8,
+  sources: {
+    osm: {
+      type: 'raster',
+      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      tileSize: 256,
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxzoom: 19,
+    },
+  },
+  layers: [{ id: 'osm-tiles', type: 'raster', source: 'osm' }],
+};
+
+const map = new maplibregl.Map({
+  container: 'map',
+  style: OSM_STYLE,
+  center: [127.8, 36.5],
+  zoom: 7,
+  pitch: 45,
+  bearing: 0,
+  antialias: true,
+});
+
+// ── 상태 ──────────────────────────────────────────────────────────────────────
+let navData       = null;
+let currentStepIdx = 0;
+let currentPtIdx   = 0;
+let simTimer       = null;
+let simRunning     = false;
+let totalDistM     = 0;
+let traversedDistM = 0;
+let lastPos        = null;
+let lastTimestamp  = null;
+let currentSpeedKmh = 0;
+let posMarker      = null;   // maplibre Marker
+let restMarkers    = [];     // 법정 휴게소 Marker 목록
+let restStopPolyIndices = []; // 각 휴게소의 폴리라인 인덱스
+let restStopVisited    = []; // 이미 정차한 휴게소 인덱스
+let pausedUntil        = 0;  // 이 타임스탬프까지 시뮬 일시정지(ms)
+
+// ── 드라이빙 시뮬레이션 상태 ─────────────────────────────────────────────────
+let segDistances    = [];   // 폴리라인 구간별 거리(m)
+let totalRouteDistM = 0;
+let posAlongRoute   = 0;    // 현재 누적 이동 거리(m)
+let simMultiplier   = 10;   // 배속 (기준 80 km/h → ×10 = 800 km/h sim)
+let wKeyHeld        = false;
+let cruiseMode      = false;
+const TICK_MS       = 80;   // ~12fps 부드러운 이동
+
+// GraphHopper sign 코드 → 이모지
+const SIGN_EMOJI = {
+  '-98':'↩', '-8':'⬅', '-7':'↰', '-6':'↲',
+  '-3':'◀', '-2':'◁', '-1':'↖',
+  '0':'⬆', '1':'↗', '2':'▷', '3':'▶',
+  '4':'↻', '5':'🏁', '6':'↱', '7':'↳', '8':'➡',
+};
+const signEmoji = s => SIGN_EMOJI[String(s)] ?? '⬆';
+
+// ── 주소 검색 UI ───────────────────────────────────────────────────────────────
+let geocodeTimers = new WeakMap();
+
+function attachSearch(inp) {
+  const inner = inp.closest('.node-row-inner');
+  const dd    = inner.querySelector('.node-dropdown');
+  const hint  = inner.querySelector('.node-latlng');
+
+  inp.addEventListener('input', () => {
+    // 좌표 직접 입력(기존 호환) 지원: "37.56,126.97" 형태
+    const parts = inp.value.split(',').map(Number);
+    if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+      inp.dataset.lat = parts[0]; inp.dataset.lon = parts[1];
+      inp.classList.add('resolved');
+      hint.textContent = `${parts[0].toFixed(5)}, ${parts[1].toFixed(5)}`;
+      dd.classList.remove('open');
+      return;
+    }
+    inp.classList.remove('resolved');
+    delete inp.dataset.lat; delete inp.dataset.lon;
+    hint.textContent = '';
+
+    clearTimeout(geocodeTimers.get(inp));
+    if (inp.value.trim().length < 2) { dd.classList.remove('open'); return; }
+    geocodeTimers.set(inp, setTimeout(() => fetchGeocode(inp.value.trim(), dd, inp, hint), 350));
+  });
+
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'Escape') dd.classList.remove('open');
+  });
+}
+
+async function fetchGeocode(q, dd, inp, hint) {
+  try {
+    const r = await fetch(`/demo/geocode?q=${encodeURIComponent(q)}`);
+    if (!r.ok) return;
+    const results = await r.json();
+    dd.innerHTML = '';
+    if (!results.length) {
+      dd.innerHTML = '<div class="dd-item" style="color:#64748b">결과 없음</div>';
+      dd.classList.add('open');
+      return;
+    }
+    results.forEach(res => {
+      const item = document.createElement('div');
+      item.className = 'dd-item';
+      item.innerHTML = `<div class="dd-name">${res.name}</div><div class="dd-addr">${res.address}</div>`;
+      item.addEventListener('mousedown', e => {
+        e.preventDefault();
+        inp.value = res.name;
+        inp.dataset.lat = res.lat; inp.dataset.lon = res.lon;
+        inp.classList.add('resolved');
+        hint.textContent = `${res.lat.toFixed(5)}, ${res.lon.toFixed(5)}`;
+        dd.classList.remove('open');
+      });
+      dd.appendChild(item);
+    });
+    dd.classList.add('open');
+  } catch {}
+}
+
+function addNode() {
+  const row = document.createElement('div');
+  row.className = 'node-row';
+  row.innerHTML = `
+    <div class="node-row-inner">
+      <input class="node-search" placeholder="주소 검색" autocomplete="off">
+      <div class="node-latlng"></div>
+      <div class="node-dropdown"></div>
+    </div>
+    <button onclick="removeNode(this)">×</button>`;
+  document.getElementById('node-rows').appendChild(row);
+  attachSearch(row.querySelector('.node-search'));
+}
+function removeNode(btn) {
+  if (document.querySelectorAll('.node-row').length <= 2) return;
+  btn.closest('.node-row').remove();
+}
+
+// 페이지 로드 시 기본 입력창에 검색 이벤트 부착
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.node-search').forEach(attachSearch);
+});
+
+// 드롭다운 외부 클릭 시 닫기
+document.addEventListener('mousedown', e => {
+  document.querySelectorAll('.node-dropdown.open').forEach(dd => {
+    if (!dd.closest('.node-row-inner').contains(e.target)) dd.classList.remove('open');
+  });
+});
+
+// ── 네비 시작 ─────────────────────────────────────────────────────────────────
+async function startNav() {
+  const profile = document.getElementById('sel-profile').value;
+  const nodes = [];
+  for (const inp of document.querySelectorAll('.node-search')) {
+    const lat = parseFloat(inp.dataset.lat);
+    const lon = parseFloat(inp.dataset.lon);
+    if (isNaN(lat) || isNaN(lon)) {
+      alert(`'${inp.value}' — 주소를 선택해 주세요`);
+      btn.textContent = '네비게이션 시작'; btn.disabled = false;
+      return;
+    }
+    nodes.push({ lat, lon });
+  }
+  if (nodes.length < 2) { alert('노드 최소 2개'); return; }
+
+  const btn = document.getElementById('btn-start');
+  btn.textContent = '불러오는 중…'; btn.disabled = true;
+
+  try {
+    const resp = await fetch(`${location.origin}/demo/nav-route?profile=${profile}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(nodes),
+    });
+    if (!resp.ok) { const e = await resp.json().catch(()=>({})); throw new Error(e.detail || `HTTP ${resp.status}`); }
+    navData = await resp.json();
+  } catch(e) {
+    alert('경로 불러오기 실패: ' + e.message);
+    btn.textContent = '네비게이션 시작'; btn.disabled = false;
+    return;
+  }
+
+  document.getElementById('setup-panel').style.display = 'none';
+  initNavUI(nodes);
+}
+
+// ── 지도 레이어 초기화 ────────────────────────────────────────────────────────
+function initNavUI(inputNodes) {
+  const pts = navData.polyline;  // [[lat,lon],...]
+
+  // GeoJSON 좌표는 [lon, lat]
+  const coords     = pts.map(p => [p[1], p[0]]);
+  const startCoord = coords[0];
+  const endCoord   = coords[coords.length - 1];
+
+  // 경로 레이어 추가 (map.on('load') 이후 보장)
+  const addLayers = () => {
+    // 지나온 구간 (회색)
+    if (!map.getSource('passed')) {
+      map.addSource('passed', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } } });
+      map.addLayer({ id: 'passed-line', type: 'line', source: 'passed', paint: { 'line-color': '#64748b', 'line-width': 7, 'line-opacity': 0.7 } });
+    }
+    // 남은 경로 (파란)
+    if (!map.getSource('route')) {
+      map.addSource('route', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } } });
+      map.addLayer({ id: 'route-line', type: 'line', source: 'route', paint: { 'line-color': '#3b82f6', 'line-width': 8, 'line-opacity': 0.9 } });
+    }
+
+    // 출발 마커
+    new maplibregl.Marker({ color: '#16a34a' })
+      .setLngLat(startCoord)
+      .addTo(map);
+
+    // 목적지 마커
+    new maplibregl.Marker({ color: '#dc2626' })
+      .setLngLat(endCoord)
+      .addTo(map);
+
+    // 경유지 마커
+    inputNodes.slice(1, -1).forEach((n, i) => {
+      const el = document.createElement('div');
+      el.style.cssText = `width:24px;height:24px;background:#2563eb;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;border:2px solid #fff;`;
+      el.textContent = i + 1;
+      new maplibregl.Marker({ element: el }).setLngLat([n.lon, n.lat]).addTo(map);
+    });
+
+    // 법정 휴게소 마커 (커피컵 ☕ 아이콘)
+    restMarkers = [];
+    (navData.rest_stops || []).forEach(rs => {
+      const el = document.createElement('div');
+      el.title = rs.name;
+      el.style.cssText = [
+        'width:34px', 'height:34px', 'border-radius:8px',
+        'background:#854d0e', 'color:#fef9c3', 'border:2px solid #fbbf24',
+        'display:flex', 'align-items:center', 'justify-content:center',
+        'font-size:18px', 'box-shadow:0 2px 6px rgba(0,0,0,.5)', 'cursor:default',
+      ].join(';');
+      el.textContent = '☕';
+      // 팝업
+      const popup = new maplibregl.Popup({ offset: 18, closeButton: false })
+        .setHTML(`<b style="font-size:13px">${rs.name}</b><br><span style="font-size:11px;color:#666">법정 휴게소</span>`);
+      const m = new maplibregl.Marker({ element: el })
+        .setLngLat([rs.lon, rs.lat])
+        .setPopup(popup)
+        .addTo(map);
+      restMarkers.push(m);
+    });
+
+    // 현재 위치 마커 (주황 원)
+    const el = document.createElement('div');
+    el.id = 'pos-dot';
+    el.style.cssText = `width:22px;height:22px;background:#f59e0b;border:3px solid #fff;border-radius:50%;box-shadow:0 0 10px rgba(245,158,11,.9);`;
+    posMarker = new maplibregl.Marker({ element: el, rotationAlignment: 'map' })
+      .setLngLat(startCoord)
+      .addTo(map);
+
+    // 초기 카메라: 출발지 중심, pitch/bearing 설정
+    map.easeTo({ center: startCoord, zoom: 14, pitch: 45, bearing: 0, duration: 800 });
+  };
+
+  if (map.isStyleLoaded()) addLayers();
+  else map.on('load', addLayers);
+
+  totalDistM = navData.total_distance_m;
+  currentStepIdx = 0; currentPtIdx = 0; traversedDistM = 0;
+  precomputeSegments(); posAlongRoute = 0;
+  precomputeRestStopIndices();
+  const _sp = navData.polyline[0];
+  updateNextPoiInfo(_sp[1], _sp[0]);
+  updateStepUI(0);
+  updateFooter();
+}
+
+// ── 시뮬 이동 유틸 ──────────────────────────────────────────────────────────
+function haversineM(lat1, lon1, lat2, lon2) {
+  const R = 6_371_000;
+  const dLat = (lat2-lat1)*Math.PI/180, dLon = (lon2-lon1)*Math.PI/180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+  return 2*R*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function precomputeSegments() {
+  const pts = navData.polyline;
+  segDistances = []; totalRouteDistM = 0;
+  for (let i = 0; i < pts.length-1; i++) {
+    const d = haversineM(pts[i][0], pts[i][1], pts[i+1][0], pts[i+1][1]);
+    segDistances.push(d); totalRouteDistM += d;
+  }
+}
+
+function onSpeedChange(val) {
+  simMultiplier = val;
+  document.getElementById('speed-val').textContent = `×${val}`;
+}
+
+function advanceByDistance(meters) {
+  posAlongRoute += meters;
+  if (posAlongRoute >= totalRouteDistM) {
+    posAlongRoute = totalRouteDistM;
+    const n = navData.polyline.length-1;
+    const last = navData.polyline[n], prev = navData.polyline[Math.max(n-1,0)];
+    onPositionUpdate(last[1], last[0], computeBearing([prev[1],prev[0]], [last[1],last[0]]), Date.now());
+    stopSim();
+    return;
+  }
+  let cum = 0;
+  for (let i = 0; i < segDistances.length; i++) {
+    if (cum + segDistances[i] > posAlongRoute) {
+      const frac = segDistances[i] > 0 ? (posAlongRoute-cum)/segDistances[i] : 0;
+      const p0 = navData.polyline[i], p1 = navData.polyline[i+1];
+      const lat = p0[0] + frac*(p1[0]-p0[0]);
+      const lon = p0[1] + frac*(p1[1]-p0[1]);
+      currentPtIdx = i;
+      // 휴게소 경유 판정: 폴리라인 인덱스 통과 시 정차
+      (navData.rest_stops || []).forEach((rs, ri) => {
+        if (!restStopVisited[ri] && i >= (restStopPolyIndices[ri] ?? -1) && (restStopPolyIndices[ri] ?? -1) >= 0) {
+          restStopVisited[ri] = true;
+          triggerPause(`☕ ${rs.name} 정차 중`, 3000);
+        }
+      });
+      onPositionUpdate(lon, lat, computeBearing([p0[1],p0[0]], [p1[1],p1[0]]), Date.now());
+      return;
+    }
+    cum += segDistances[i];
+  }
+}
+
+// ── 안내 UI ──────────────────────────────────────────────────────────────────
+function updateStepUI(idx) {
+  const steps = navData?.instructions;
+  if (!steps || idx >= steps.length) return;
+  const s = steps[idx];
+  document.getElementById('nav-sign').textContent        = signEmoji(s.sign);
+  document.getElementById('nav-instruction').textContent = s.text || '계속 직진';
+  document.getElementById('f-step').textContent          = `${idx+1} / ${steps.length}`;
+}
+
+function updateFooter() {
+  const remain = Math.max(0, totalDistM - traversedDistM);
+  document.getElementById('f-remain-dist').textContent = fmtDist(remain);
+  // 예상 시간: 실제 권장 속도 80 km/h 기준 (배속 무관, 실 주행시간 표시)
+  const BASE_KMH = 80;
+  document.getElementById('f-remain-time').textContent = fmtTime(remain / (BASE_KMH / 3.6));
+  // 속도 표시: 실제 이동 속도 (GPS) 또는 고정 80 km/h (sim)
+  document.getElementById('f-speed').textContent = `${Math.round(currentSpeedKmh || 0)} km/h`;
+  const pct = totalDistM > 0 ? Math.min(100, (traversedDistM / totalDistM) * 100) : 0;
+  document.getElementById('progress-bar').style.width = pct + '%';
+}
+
+// ── 다음 POI(휴게소/목적지) 거리 표시 ───────────────────────────────────────
+function precomputeRestStopIndices() {
+  restStopVisited = new Array((navData.rest_stops || []).length).fill(false);
+  restStopPolyIndices = (navData.rest_stops || []).map(rs => {
+    let best = 0, bestDist = Infinity;
+    navData.polyline.forEach((p, i) => {
+      const d = haversineM(rs.lat, rs.lon, p[0], p[1]);
+      if (d < bestDist) { bestDist = d; best = i; }
+    });
+    return best;
+  });
+}
+
+function updateNextPoiInfo(lon, lat) {
+  if (!navData) return;
+  const stops = navData.rest_stops || [];
+  let nextStop = null, nextStopDist = Infinity;
+  stops.forEach((rs, i) => {
+    if ((restStopPolyIndices[i] ?? 0) > currentPtIdx) {
+      const d = haversineM(lat, lon, rs.lat, rs.lon);
+      if (d < nextStopDist) { nextStopDist = d; nextStop = rs; }
+    }
+  });
+  const lastPt = navData.polyline[navData.polyline.length - 1];
+  const destDist = haversineM(lat, lon, lastPt[0], lastPt[1]);
+  let txt;
+  if (nextStop) {
+    txt = `☕ ${fmtDist(nextStopDist)} 후 휴게 · 🏁 ${fmtDist(destDist)}`;
+  } else {
+    txt = `🏁 목적지까지 ${fmtDist(destDist)}`;
+  }
+  document.getElementById('nav-dist-next').textContent = txt;
+}
+
+// ── 위치 업데이트 (GPS / 시뮬 공용) ──────────────────────────────────────────
+// lon, lat 순서 (MapLibre 기준)
+function onPositionUpdate(lon, lat, heading, timestamp) {
+  if (!navData || !posMarker) return;
+
+  // 이동 거리 누적
+  if (lastPos && lastTimestamp) {
+    const dx = (lon - lastPos[0]) * 111320 * Math.cos(lat * Math.PI / 180);
+    const dy = (lat - lastPos[1]) * 110540;
+    const d  = Math.sqrt(dx*dx + dy*dy);
+    const dt = (timestamp - lastTimestamp) / 1000;
+    traversedDistM += d;
+    // 시뮬 모드: 실제 추주 속도 80 km/h 고정 (배속과 무관하게 진짜 화물차 속도로 표시)
+    if (cruiseMode || wKeyHeld) {
+      currentSpeedKmh = 80;
+    } else if (dt > 0 && d > 0) {
+      currentSpeedKmh = (d / dt) * 3.6;  // GPS 모드는 실제 속도
+    }
+  }
+  lastPos = [lon, lat];
+  lastTimestamp = timestamp;
+
+  // 위치 마커 이동
+  posMarker.setLngLat([lon, lat]);
+
+  // bearing 계산 (heading 없으면 이전→현재 방향 계산)
+  let bearing = heading ?? computeBearing(lastPos, [lon, lat]);
+
+  // 카메라: 현재 위치 추적 + 진행 방향으로 회전 + pitch 유지
+  map.easeTo({
+    center: [lon, lat],
+    bearing: bearing || map.getBearing(),
+    pitch: map.getPitch(),
+    zoom: 15,
+    duration: 300,
+    easing: t => t,
+  });
+
+  // 경로 진행 레이어 업데이트
+  const ptIdx = closestPointIdx(lon, lat);
+  if (ptIdx > currentPtIdx) {
+    currentPtIdx = ptIdx;
+    const all = navData.polyline.map(p => [p[1], p[0]]);
+    map.getSource('passed')?.setData({ type:'Feature', geometry:{ type:'LineString', coordinates: all.slice(0, ptIdx+1) } });
+    map.getSource('route')?.setData({ type:'Feature', geometry:{ type:'LineString', coordinates: all.slice(ptIdx) } });
+  }
+
+  // 단계 진행
+  const steps = navData.instructions;
+  while (currentStepIdx < steps.length - 1 && ptIdx >= steps[currentStepIdx].interval[1]) {
+    currentStepIdx++;
+    updateStepUI(currentStepIdx);
+  }
+
+  // 도착 판정 (마지막 지점 80m 이내)
+  const dest = navData.polyline[navData.polyline.length - 1];
+  const ddx = (lon - dest[1]) * 111320 * Math.cos(lat * Math.PI/180);
+  const ddy = (lat - dest[0]) * 110540;
+  if (Math.sqrt(ddx*ddx + ddy*ddy) < 80) {
+    document.getElementById('nav-instruction').textContent = '🏁 목적지 도착!';
+    document.getElementById('nav-sign').textContent = '🏁';
+    document.getElementById('nav-dist-next').textContent = '';
+    stopSim();
+  }
+
+  updateNextPoiInfo(lon, lat);
+  updateFooter();
+}
+
+// ── 시뮬레이션 ────────────────────────────────────────────────────────────────
+function simTick() {
+  if (!navData || (!cruiseMode && !wKeyHeld)) return;
+  if (Date.now() < pausedUntil) return; // 정차 중 → 이동 건너뜀
+  // 배속 × 80km/h → 실제 이동 거리 (m/tick)
+  const distPerTick = (simMultiplier * 80 / 3.6) * (TICK_MS / 1000);
+  advanceByDistance(distPerTick);
+}
+
+function triggerPause(label, ms) {
+  pausedUntil = Date.now() + ms;
+  currentSpeedKmh = 0;
+  const banner = document.getElementById('pause-banner');
+  let remaining = Math.ceil(ms / 1000);
+  banner.textContent = `${label} — ${remaining}초 후 출발`;
+  banner.style.display = 'block';
+  const iv = setInterval(() => {
+    remaining--;
+    if (remaining <= 0) {
+      clearInterval(iv);
+      banner.style.display = 'none';
+    } else {
+      banner.textContent = `${label} — ${remaining}초 후 출발`;
+    }
+  }, 1000);
+}
+
+function toggleSim() {
+  if (!navData) return;
+  if (cruiseMode) {
+    cruiseMode = false;
+    document.getElementById('btn-sim').textContent = '▶ 크루즈';
+    document.getElementById('btn-sim').classList.remove('active');
+    document.getElementById('cruise-badge').style.display = 'none';
+  } else {
+    cruiseMode = true; simRunning = true;
+    document.getElementById('btn-sim').textContent = '⏸ 크루즈 OFF';
+    document.getElementById('btn-sim').classList.add('active');
+    document.getElementById('cruise-badge').style.display = '';
+    if (!simTimer) simTimer = setInterval(simTick, TICK_MS);
+  }
+}
+
+function stopSim() {
+  cruiseMode = false; wKeyHeld = false; simRunning = false;
+  if (simTimer) { clearInterval(simTimer); simTimer = null; }
+  document.getElementById('btn-sim').textContent = '▶ 크루즈';
+  document.getElementById('btn-sim').classList.remove('active');
+  document.getElementById('cruise-badge').style.display = 'none';
+}
+
+// ── 키보드 드라이빙 컨트롤 ───────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (!navData || !posMarker) return;
+  const forward = e.code === 'KeyW' || e.code === 'ArrowUp';
+  const brake   = e.code === 'KeyS' || e.code === 'ArrowDown';
+  if (forward && !e.repeat) {
+    wKeyHeld = true; simRunning = true;
+    if (!simTimer) simTimer = setInterval(simTick, TICK_MS);
+  }
+  if (brake) {
+    wKeyHeld = false; cruiseMode = false;
+    document.getElementById('cruise-badge').style.display = 'none';
+    document.getElementById('btn-sim').textContent = '▶ 크루즈';
+    document.getElementById('btn-sim').classList.remove('active');
+  }
+  if (e.code === 'Space') { e.preventDefault(); toggleSim(); }
+  // 배속 조절: + / -
+  if (e.code === 'Equal' || e.code === 'NumpadAdd') {
+    const s = document.getElementById('speed-slider');
+    s.value = Math.min(100, +s.value + 5);
+    onSpeedChange(+s.value);
+  }
+  if (e.code === 'Minus' || e.code === 'NumpadSubtract') {
+    const s = document.getElementById('speed-slider');
+    s.value = Math.max(1, +s.value - 5);
+    onSpeedChange(+s.value);
+  }
+});
+document.addEventListener('keyup', e => {
+  if (e.code === 'KeyW' || e.code === 'ArrowUp') {
+    wKeyHeld = false;
+  }
+});
+
+function resetNav() {
+  stopSim();
+  // 소스/레이어 제거
+  ['route-line','passed-line'].forEach(id => { try { map.removeLayer(id); } catch(e){} });
+  ['route','passed'].forEach(id => { try { map.removeSource(id); } catch(e){} });
+  if (posMarker) { posMarker.remove(); posMarker = null; }
+  restMarkers.forEach(m => m.remove()); restMarkers = [];
+  // 상태 초기화
+  navData = null; currentStepIdx = 0; currentPtIdx = 0;
+  traversedDistM = 0; lastPos = null; lastTimestamp = null; currentSpeedKmh = 0;
+  segDistances = []; totalRouteDistM = 0; posAlongRoute = 0;
+  restStopPolyIndices = []; restStopVisited = []; pausedUntil = 0;
+  wKeyHeld = false; cruiseMode = false;
+  if (simTimer) { clearInterval(simTimer); simTimer = null; }
+  map.easeTo({ center: [127.8, 36.5], zoom: 7, pitch: 45, bearing: 0, duration: 600 });
+  document.getElementById('setup-panel').style.display = 'flex';
+  document.getElementById('btn-start').textContent = '네비게이션 시작';
+  document.getElementById('btn-start').disabled = false;
+  document.getElementById('nav-instruction').textContent = '경로를 불러오는 중…';
+  document.getElementById('nav-dist-next').textContent = '';
+  document.getElementById('nav-sign').textContent = '—';
+  document.getElementById('progress-bar').style.width = '0%';
+}
+
+// ── 유틸 ─────────────────────────────────────────────────────────────────────
+// 폴리라인에서 가장 가까운 인덱스 찾기
+function closestPointIdx(lon, lat) {
+  const pts = navData.polyline;
+  let best = currentPtIdx, bestDist = Infinity;
+  const end = Math.min(pts.length, currentPtIdx + 200);
+  for (let i = currentPtIdx; i < end; i++) {
+    const dx = (lon - pts[i][1]) * 111320 * Math.cos(lat * Math.PI/180);
+    const dy = (lat - pts[i][0]) * 110540;
+    const d  = dx*dx + dy*dy;
+    if (d < bestDist) { bestDist = d; best = i; }
+  }
+  return best;
+}
+
+// 두 [lon,lat] 포인트 간 bearing(도) 계산
+function computeBearing([lon1, lat1], [lon2, lat2]) {
+  const toRad = d => d * Math.PI / 180;
+  const dLon = toRad(lon2 - lon1);
+  const φ1 = toRad(lat1), φ2 = toRad(lat2);
+  const y = Math.sin(dLon) * Math.cos(φ2);
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(dLon);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+function fmtDist(m) {
+  return m >= 1000 ? `${(m/1000).toFixed(1)} km` : `${Math.round(m)} m`;
+}
+function fmtTime(sec) {
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
+  return h > 0 ? `${h}시간 ${m}분` : `${m}분`;
+}
+</script>
+</body>
+</html>

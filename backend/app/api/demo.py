@@ -9,7 +9,7 @@ from app.core.database import get_db
 from app.models.rest_stop import RestStop
 from app.schemas.optimize import RouteNodeSchema
 from app.services import graphhopper as gh_svc
-from app.services.optimizer import solve_tsp
+from app.services.optimizer import solve_tsp, validate_tsp_constraints
 from app.services.rest_stop_inserter import (
     MAX_DRIVE_SEC,
     RouteNode,
@@ -160,25 +160,48 @@ async def _build_route_alternative(
             continue
 
         travel_brg = _bearing(prev_n.lat, prev_n.lon, next_n.lat, next_n.lon)
+        direct_sec = _haversine_sec(prev_n.lat, prev_n.lon, next_n.lat, next_n.lon)
 
-        def _detour_key(c: dict, pn: RouteNode = prev_n, nn: RouteNode = next_n, brg: float = travel_brg) -> tuple:
-            cost = (
+        # 타입 우선순위: truck_rest=0, highway_rest=1, 그 외(drowsy)=2
+        _TYPE_PRIO = {"truck_rest": 0, "highway_rest": 1}
+
+        def _detour_key(c: dict, pn: RouteNode = prev_n, nn: RouteNode = next_n,
+                        direct: float = direct_sec) -> tuple:
+            detour = (
                 _haversine_sec(pn.lat, pn.lon, c["latitude"], c["longitude"])
                 + _haversine_sec(c["latitude"], c["longitude"], nn.lat, nn.lon)
+                - direct
             )
-            dbok = _direction_bearing(c.get("direction"))
-            return (0 if (dbok is None or _angle_diff(brg, dbok) < 90) else 1, cost)
+            type_prio = _TYPE_PRIO.get(c.get("type", ""), 2)
+            return (type_prio, detour)
 
-        top5 = sorted(
-            [c for c in nearby_rests if c.get("is_active", True)],
+        # 이미 route에 삽입된 휴게소는 제외 (중복 표시 방지) — 대안만 반환
+        selected_key = (round(node.lat, 5), round(node.lon, 5))
+
+        # 반경 필터: 삽입된 휴게소 노드 기준 80km 이내 후보만 (동선 맞는 장소만 추천)
+        _OPTION_RADIUS_SEC = 80 * 1000 / 80 * 3.6  # ~3600초 ≈ 80km 직선
+        # 반대 차선 완전 제외: direction 정보 있으면 진행 방향과 90도 이상 차이나는 후보 제거
+        top3 = sorted(
+            [
+                c for c in nearby_rests
+                if c.get("is_active", True)
+                and (round(c["latitude"], 5), round(c["longitude"], 5)) != selected_key
+                # 현재 휴게소 위치 기준 반경 필터
+                and _haversine_sec(node.lat, node.lon, c["latitude"], c["longitude"]) <= _OPTION_RADIUS_SEC
+                # 반대 차선 완전 제외
+                and (
+                    _direction_bearing(c.get("direction")) is None
+                    or _angle_diff(travel_brg, _direction_bearing(c.get("direction"))) < 90
+                )
+            ],
             key=_detour_key,
-        )[:5]
+        )[:3]
         rest_stop_options.append([
             RestStopOption(
                 name=c["name"], lat=c["latitude"], lon=c["longitude"],
                 type=c.get("type", "truck_rest"),
             )
-            for c in top5
+            for c in top3
         ])
 
     return RouteAlternative(
@@ -201,6 +224,169 @@ async def demo_polyline(req: PolylineRequest):
     return PolylineResponse(polyline=polyline)
 
 
+# ── 네비게이션용: instructions 포함 상세 경로 ───────────────────────────────────
+class NavNode(BaseModel):
+    lat: float
+    lon: float
+
+
+class NavInstruction(BaseModel):
+    text: str
+    distance: float   # m
+    time: float       # ms → 초로 변환
+    sign: int         # GH sign 코드 (0=직진, -2=좌회전, 2=우회전 등)
+    interval: list[int]  # polyline 인덱스 범위 [start, end]
+
+
+class NavRestStop(BaseModel):
+    name: str
+    lat: float
+    lon: float
+    type: str   # truck_rest | highway_rest | drowsy_shelter
+
+
+class NavRouteResponse(BaseModel):
+    polyline: list[list[float]]   # [[lat,lon],...]
+    instructions: list[NavInstruction]
+    total_distance_m: float
+    total_time_sec: float
+    rest_stops: list[NavRestStop]   # 법정 삽입 휴게소 목록
+
+
+@router.post("/nav-route", response_model=NavRouteResponse)
+async def demo_nav_route(
+    nodes: list[NavNode],
+    profile: str = "truck",
+    db: AsyncSession = Depends(get_db),
+):
+    """네비게이션용 — GraphHopper instructions + 법정 휴게소 삽입 경로 반환."""
+    if len(nodes) < 2:
+        raise HTTPException(status_code=400, detail="노드 최소 2개 필요")
+
+    params = [("profile", profile), ("points_encoded", "false"),
+              ("type", "json"), ("instructions", "true"), ("locale", "ko")]
+    for n in nodes:
+        params.append(("point", f"{n.lat},{n.lon}"))
+
+    import httpx
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        resp = await client.get(f"{gh_svc.GH_BASE}/route", params=params)
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail="GraphHopper 응답 오류")
+
+    path = resp.json()["paths"][0]
+    polyline = [[c[1], c[0]] for c in path["points"]["coordinates"]]
+    route_time_sec = int(path.get("time", 0) / 1000)
+
+    instructions = [
+        NavInstruction(
+            text=ins.get("text", ""),
+            distance=ins.get("distance", 0),
+            time=round(ins.get("time", 0) / 1000, 1),
+            sign=ins.get("sign", 0),
+            interval=ins.get("interval", [0, 0]),
+        )
+        for ins in path.get("instructions", [])
+    ]
+
+    # ── 법정 휴게소 삽입 ────────────────────────────────────────────────────
+    # DB에서 활성 휴게소 전체 조회
+    rest_rows = await db.execute(
+        select(RestStop).where(RestStop.is_active == True)  # noqa: E712
+    )
+    rest_candidates = [
+        {
+            "name": r.name,
+            "latitude": r.latitude,
+            "longitude": r.longitude,
+            "type": r.type.value,
+            "direction": r.direction,
+            "is_active": r.is_active,
+        }
+        for r in rest_rows.scalars().all()
+    ]
+
+    # 경로 근처 후보 필터 후 삽입
+    nearby = gh_svc.filter_rest_by_route(rest_candidates, polyline)
+
+    ordered = [
+        RouteNode(
+            type="origin" if i == 0 else ("destination" if i == len(nodes) - 1 else "waypoint"),
+            name=f"노드{i}",
+            lat=n.lat,
+            lon=n.lon,
+            can_rest=False,
+        )
+        for i, n in enumerate(nodes)
+    ]
+
+    segment_times = None
+    if len(nodes) > 2:
+        # 구간별 시간 추정: 전체 시간을 구간 Haversine 비율로 분배
+        from app.services.rest_stop_inserter import _haversine_sec
+        seg_hav = [
+            _haversine_sec(nodes[i].lat, nodes[i].lon, nodes[i+1].lat, nodes[i+1].lon)
+            for i in range(len(nodes) - 1)
+        ]
+        total_hav = sum(seg_hav) or 1
+        segment_times = [int(route_time_sec * s / total_hav) for s in seg_hav]
+
+    final_route = plan_rest_stops_from_polyline(
+        ordered,
+        polyline,
+        route_time_sec,
+        nearby,
+        segment_times=segment_times,
+    )
+
+    rest_stops = [
+        NavRestStop(name=n.name, lat=n.lat, lon=n.lon, type="truck_rest")
+        for n in final_route
+        if n.type == "rest_stop"
+    ]
+
+    # ── 휴게소가 삽입됐으면 경유지 포함해 GH 재호출 → 폴리라인이 휴게소를 통과하도록 ──
+    if rest_stops:
+        all_waypoints = [{"lat": n.lat, "lon": n.lon} for n in final_route]
+        try:
+            reroute_params = [
+                ("profile", profile), ("points_encoded", "false"),
+                ("type", "json"), ("instructions", "true"), ("locale", "ko"),
+            ]
+            for wp in all_waypoints:
+                reroute_params.append(("point", f"{wp['lat']},{wp['lon']}"))
+
+            async with httpx.AsyncClient(timeout=60.0) as client2:
+                resp2 = await client2.get(f"{gh_svc.GH_BASE}/route", params=reroute_params)
+
+            if resp2.status_code == 200:
+                path2 = resp2.json()["paths"][0]
+                polyline = [[c[1], c[0]] for c in path2["points"]["coordinates"]]
+                route_time_sec = int(path2.get("time", 0) / 1000)
+                instructions = [
+                    NavInstruction(
+                        text=ins.get("text", ""),
+                        distance=ins.get("distance", 0),
+                        time=round(ins.get("time", 0) / 1000, 1),
+                        sign=ins.get("sign", 0),
+                        interval=ins.get("interval", [0, 0]),
+                    )
+                    for ins in path2.get("instructions", [])
+                ]
+                path = path2
+        except Exception:
+            pass  # 재호출 실패 시 원본 폴리라인 그대로 사용
+
+    return NavRouteResponse(
+        polyline=polyline,
+        instructions=instructions,
+        total_distance_m=path.get("distance", 0),
+        total_time_sec=round(route_time_sec, 1),
+        rest_stops=rest_stops,
+    )
+
+
 class TruckRestItem(BaseModel):
     id: int
     name: str
@@ -208,6 +394,44 @@ class TruckRestItem(BaseModel):
     lon: float
     type: str
     direction: str | None = None
+
+
+# ── 주소 검색 프록시 (Kakao Local API) ──────────────────────────────────────
+class GeoResult(BaseModel):
+    name: str       # 장소명 또는 도로명 주소
+    address: str    # 전체 주소
+    lat: float
+    lon: float
+
+
+@router.get("/geocode", response_model=list[GeoResult])
+async def demo_geocode(q: str):
+    """카카오 로컬 API 키워드 검색 → 좌표 반환 (API 키 서버 보관)."""
+    from app.core.config import settings
+    if not settings.KAKAO_API_KEY:
+        raise HTTPException(status_code=503, detail="KAKAO_API_KEY 미설정")
+
+    import httpx
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(
+            "https://dapi.kakao.com/v2/local/search/keyword.json",
+            params={"query": q, "size": 8},
+            headers={"Authorization": f"KakaoAK {settings.KAKAO_API_KEY}"},
+        )
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail="Kakao API 오류")
+
+    docs = resp.json().get("documents", [])
+    return [
+        GeoResult(
+            name=d.get("place_name", ""),
+            address=d.get("road_address_name") or d.get("address_name", ""),
+            lat=float(d["y"]),
+            lon=float(d["x"]),
+        )
+        for d in docs
+        if d.get("x") and d.get("y")
+    ]
 
 
 @router.get("/truck-rests", response_model=list[TruckRestItem])
@@ -264,7 +488,20 @@ async def demo_route(req: DemoRouteRequest, db: AsyncSession = Depends(get_db)):
         tsp_pickups = pickup_pairs
 
     dest_idx = len(nodes) - 1
+
+    # 제약 사전 검사 — 종류별 오류 메시지 반환
+    node_names = [n["name"] for n in nodes]
+    violation = validate_tsp_constraints(time_matrix, tsp_time_windows, tsp_pickups, node_names)
+    if violation:
+        code, msg = violation
+        raise HTTPException(status_code=code, detail=msg)
+
     tsp_order = solve_tsp(time_matrix, time_windows=tsp_time_windows, pickup_deliveries=tsp_pickups)
+    if tsp_order is None:
+        raise HTTPException(
+            status_code=422,
+            detail="경로 계산 실패: 복합 제약 충돌로 가능한 경로가 없습니다. 시간창 범위나 경유지 순서를 조정해 주세요.",
+        )
     if tsp_order and tsp_order[-1] == dest_idx:
         tsp_order = tsp_order[:-1]
 

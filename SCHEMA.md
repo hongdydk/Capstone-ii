@@ -12,7 +12,7 @@
 |---|---|
 | `userrole` | `admin`, `driver`, `contractor` |
 | `tripstatus` | `scheduled`, `in_progress`, `completed`, `cancelled` |
-| `reststoptype` | `highway_rest`, `drowsy_shelter`, `depot`, `custom` |
+| `reststoptype` | `truck_rest`, `highway_rest`, `drowsy_shelter`, `depot`, `custom` |
 | `drivingstate` | `driving`, `resting`, `traffic_stop`, `unknown` |
 | `dispatchgroupstatus` | `draft`, `dispatched`, `in_progress`, `completed`, `cancelled` |
 | `dispatchorderstatus` | `pending`, `assigned`, `delivered`, `cancelled` |
@@ -170,8 +170,12 @@
 | `speed_kmh` | FLOAT | | 속도 (km/h) |
 | `state` | drivingstate | NOT NULL DEFAULT 'unknown' | 운전 상태 |
 | `recorded_at` | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | GPS 기록 시각 |
-| `created_at` | TIMESTAMPTZ | DEFAULT NOW() | |
+| `created_at` | TIMESTAMPTZ | DEFAULT NOW() | **서버 타임스탬프** — 누적 운전시간 계산 기준 (폰 시간 조작 차단) |
 | `updated_at` | TIMESTAMPTZ | DEFAULT NOW() | |
+
+> **POST `/location-logs/` 응답 전용 계산 필드** (DB 컬럼 아님):
+> - `accumulated_drive_sec`: `created_at` 기준 누적 연속 운전시간(초). `resting` 15분↑ 시 리셋
+> - `needs_replan`: `accumulated_drive_sec >= REST_PLAN_SEC(6000)` 이면 `true` → 앱이 `POST /optimize/replan` 자동 호출
 
 ---
 
@@ -183,7 +187,8 @@
 
 | `type` | 등록 주체 | 설명 | 방향 필터 |
 |---|---|---|---|
-| `highway_rest` | 시스템 (관리자) | 고속도로 휴게소. 공공 데이터 기반 | O |
+| `truck_rest` | 시스템 (관리자) | 화물차 전용 휴게소. 국가물류통합정보센터 XLS 기반 (`sync_xls_rest_stops.py`) | O |
+| `highway_rest` | 시스템 (관리자) | 일반 고속도로 휴게소. 공공 데이터 기반 | O |
 | `drowsy_shelter` | 시스템 (관리자) | 졸음쉼터. 공공 데이터 기반 | O |
 | `depot` | 시스템 (관리자) | 공영차고지. 공공 데이터 기반 | X |
 | `custom` | 회사(admin) / 기사(driver) | 직접 추가한 즐겨찾기 장소. `created_by_id`로 소유자 추적, `scope`로 공개 범위 설정 | X |

@@ -13,7 +13,7 @@ from app.schemas.optimize import (
     RouteNodeSchema,
 )
 from app.services import kakao as kakao_svc
-from app.services.optimizer import solve_tsp
+from app.services.optimizer import solve_tsp, validate_tsp_constraints
 from app.services.rest_stop_inserter import RouteNode, insert_rest_stops
 
 router = APIRouter()
@@ -137,7 +137,19 @@ async def optimize(req: OptimizeRequest, db: AsyncSession = Depends(get_db)):
         if pairs:
             pickup_deliveries = pairs
 
+    # 제약 사전 검사 — 종류별 오류 메시지 반환
+    node_names = [n["name"] for n in nodes]
+    violation = validate_tsp_constraints(time_matrix, time_windows, pickup_deliveries, node_names)
+    if violation:
+        code, msg = violation
+        raise HTTPException(status_code=code, detail=msg)
+
     tsp_order = solve_tsp(time_matrix, time_windows=time_windows, pickup_deliveries=pickup_deliveries)
+    if tsp_order is None:
+        raise HTTPException(
+            status_code=422,
+            detail="경로 계산 실패: 복합 제약 충돌로 가능한 경로가 없습니다. 시간창 범위나 경유지 순서를 조정해 주세요.",
+        )
 
     ordered_nodes = [
         RouteNode(

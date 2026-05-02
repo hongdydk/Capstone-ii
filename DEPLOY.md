@@ -100,10 +100,13 @@ PY
 uvicorn app.main:app --port 8000 &
 sleep 5 && kill %1
 
-# 졸음쉼터 CSV 시드
+# 졸음쉼터 CSV 시드 (drowsy_shelter — EUC-KR 자동 처리)
 python seeds/seed_rest_stops.py
 
-# truck_rest 휴게소는 DB 덤프로 복원 (아래 9단계 참고)
+# truck_rest 휴게소 시드 (XLS 기반 Kakao 지오코딩 — KAKAO_API_KEY 필요)
+python seeds/sync_xls_rest_stops.py
+# → 자료/휴게소정보_260325.xls 파싱 후 Kakao 지오코딩으로 좌표 확정
+# → 신규 추가 / 기존 업데이트 / 폐업 비활성화 자동 처리
 ```
 
 ---
@@ -222,9 +225,22 @@ sudo systemctl start routeon
 
 ---
 
-## 9단계 — DB truck_rest 데이터 복원
+## 9단계 — truck_rest 휴게소 데이터 적재
 
-로컬 PC에서 truck_rest 데이터를 덤프해서 서버로 전송:
+**방법 1 (권장) — XLS 직접 시드**
+
+`자료/휴게소정보_260325.xls` 파일이 git clone에 포함되어 있으므로, 서버에서 바로 실행:
+
+```bash
+cd /opt/routeon/backend
+source ../.venv/bin/activate
+python seeds/sync_xls_rest_stops.py
+# → Kakao 지오코딩으로 좌표 확정 후 DB 적재 (KAKAO_API_KEY 필요)
+```
+
+**방법 2 (대안) — 로컬 DB 덤프 복원**
+
+로컬에서 이미 시드된 DB를 서버로 전송할 때:
 
 ```powershell
 # 로컬 Windows에서 실행
@@ -273,11 +289,19 @@ curl http://localhost:8000/health
 curl "http://localhost:8989/health"
 # → {"status":"GREEN",...}
 
-# 데모 경로 테스트
+# 데모 경로 테스트 (법정 휴게소 자동 삽입 + 대안 top-3 포함)
 curl -s -X POST http://localhost:8000/demo/route \
   -H 'Content-Type: application/json' \
   -d '{"profile":"truck","nodes":[{"name":"서울","lat":37.5665,"lon":126.978},{"name":"부산","lat":35.1796,"lon":129.0756}]}' \
-  | python3 -m json.tool | head -30
+  | python3 -m json.tool | head -40
+
+# 위치 로그 전송 테스트 (응답에 accumulated_drive_sec + needs_replan 포함)
+# accumulated_drive_sec: 서버 타임스탬프 기준 누적 연속 운전시간(초) — 폰 시간 조작 차단
+# needs_replan: accumulated_drive_sec >= 6000 이면 true → 앱이 POST /optimize/replan 자동 호출
+curl -s -X POST http://localhost:8000/location-logs/ \
+  -H 'Content-Type: application/json' \
+  -d '{"trip_id":1,"latitude":37.1234,"longitude":127.5678,"speed_kmh":85.0}' \
+  | python3 -m json.tool
 ```
 
 ---

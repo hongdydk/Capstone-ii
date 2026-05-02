@@ -5,14 +5,17 @@
 ## 1. 시스템 구성
 
 ```
-┌─────────────────────┐      ┌─────────────────────┐
-│   관제 웹 (Web)      │      │   기사 앱 (Mobile)   │
-│  - 관리자 전용       │      │  - 운전기사/용차 공용 │
-│  - 배차·운행 현황    │      │  - 실시간 네비게이션  │
-│  - 경로 확인·수정    │      │  - 휴게 알림·재탐색   │
-└────────┬────────────┘      └──────────┬──────────┘
-         │                              │
-         └──────────────┬───────────────┘
+┌──────────────────────────────────┐      ┌─────────────────────┐
+│         관제 웹 (Web)            │      │   기사 앱 (Mobile)   │
+│  - 관리자 전용                    │      │  - 운전기사/용차 공용 │
+│  - 상차지 + 하차지 노드 전달      │      │  - 노드 수신 후       │
+│    → 경로 선택은 기사가 직접      │      │    경로 직접 선택     │
+│  - 운행 중 추가 노드 전달 가능    │      │  - 추가 노드 수신 시  │
+│    (중간 경유지 지시)             │      │    현재 위치 기준     │
+│                                  │      │    재탐색             │
+└────────┬─────────────────────────┘      └──────────┬──────────┘
+         │                                           │
+         └──────────────┬─────────────────────────────┘
                         ▼
          ┌──────────────────────────────┐
          │      FastAPI 백엔드 (8000)    │
@@ -151,6 +154,7 @@ Capstone-ii/
 - GraphHopper 화물차 라우팅 엔진 연동
 - Kakao `departure_time` 기반 미래 교통 반영
 - truck_rest 휴게소 DB 79건 (XLS 전수 검증 완료)
+- 위치 로그 기반 누적 운전시간 추적 (`accumulated_drive_sec`) 및 재경로 트리거 플래그 (`needs_replan`)
 
 **미구현:**
 - 다수 차량 VRP 배차: `POST /optimize/dispatch` (501)
@@ -235,12 +239,18 @@ python seeds/sync_xls_rest_stops.py
 | `/vehicles/` | GET/POST/PATCH | 차량 CRUD |
 | `/drivers/` | GET/POST | 기사 CRUD |
 | `/rest-stops/` | GET/POST/DELETE | 휴게소 CRUD |
-| `/location-logs/` | GET/POST | 위치 로그 |
+| `/location-logs/` | GET/POST | 위치 로그 — POST 응답에 `accumulated_drive_sec`, `needs_replan` 포함 |
 | `/health` | GET | 헬스체크 |
 
 ## 9. 데모 경로 최적화 (DB 없이 테스트)
 
 trip을 만들지 않고 노드 좌표만으로 즉시 경로 + 휴게소 삽입 결과를 확인합니다.
+
+### 기본 사용 패턴 — 상차지 + 하차지 2개
+
+관제 웹은 **상차지(cargo pickup)와 하차지(cargo dropoff) 노드**를 입력해 경로를 미리 확인합니다.  
+노드 목록을 기사 앱으로 전달하면 **경로 선택은 기사가 직접** 합니다.  
+관리자가 운행 중 추가 경유지가 필요할 때만 노드를 추가 전달하며, 기사 앱이 **현재 위치 기준으로 재계산**합니다.
 
 ```bash
 curl -s -X POST http://localhost:8000/demo/route \
@@ -248,13 +258,47 @@ curl -s -X POST http://localhost:8000/demo/route \
   -d '{
     "profile": "truck",
     "nodes": [
-      {"name": "서울", "lat": 37.5665, "lon": 126.978},
-      {"name": "부산", "lat": 35.1796, "lon": 129.0756}
+      {"name": "상차지 — 인천 물류센터", "lat": 37.4563, "lon": 126.7052},
+      {"name": "하차지 — 부산 물류단지", "lat": 35.1796, "lon": 129.0756}
     ]
   }' | python -m json.tool
 ```
 
-## 10. 최적화 요청 예시
+### 경유지 추가 (다중 납품)
+
+상차지에서 화물을 싣고 여러 하차지에 순차 납품할 때 `pickup_from_idx`로 상차→하차 순서 제약을 걸 수 있습니다.
+
+```bash
+curl -s -X POST http://localhost:8000/demo/route \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "profile": "truck",
+    "nodes": [
+      {"name": "상차지 — 인천 물류센터",  "lat": 37.4563, "lon": 126.7052},
+      {"name": "하차지1 — 대전 창고",      "lat": 36.3504, "lon": 127.3845, "pickup_from_idx": 0},
+      {"name": "하차지2 — 부산 물류단지",  "lat": 35.1796, "lon": 129.0756, "pickup_from_idx": 0}
+    ]
+  }' | python -m json.tool
+```
+
+## 10. 관제 웹 UI 사용법
+
+`http://localhost:8000/map/` 접속 후:
+
+1. **상차지 버튼** 클릭 → 지도에서 화물을 싣는 지점 클릭
+2. **하차지 버튼** 클릭 → 지도에서 화물을 내리는 지점 클릭
+3. (선택) **경유지 버튼**으로 추가 경유지 삽입, ⚙ 버튼으로 도착 시각 제약·상차→하차 연결 설정
+4. **경로 계산** → 법정 휴게소 자동 삽입 결과 미리 확인
+5. **노드 목록을 기사 앱으로 전달** → 기사가 직접 경로 선택
+
+**운행 중 추가 경유지 지시:**
+
+관리자가 "중간에 A 창고도 들러주세요"가 필요할 때:
+- 추가 노드만 기사 앱으로 전달
+- 기사 앱이 **현재 위치(`current_lat/lon`) + 누적 운전시간(`current_drive_sec`) 기준으로 `POST /optimize/replan` 재호출**
+- 재탐색 후 기사에게 새 경로 안내
+
+## 11. 최적화 요청 예시
 
 ### Trip 기반 최적화
 
@@ -269,6 +313,30 @@ POST /optimize/
   "route_mode": "long_distance"
 }
 ```
+
+### 운행 중 위치 전송 (30초 간격)
+
+```json
+POST /location-logs/
+{
+  "trip_id": 1,
+  "latitude": 36.1234,
+  "longitude": 127.4567,
+  "speed_kmh": 90.0
+}
+```
+
+응답:
+```json
+{
+  "accumulated_drive_sec": 6200,
+  "needs_replan": true
+}
+```
+
+- `accumulated_drive_sec`: 서버 타임스탬프 기준 누적 연속 운전시간(초). 폰 시간 조작 차단
+- `needs_replan`: `accumulated_drive_sec >= REST_PLAN_SEC(6000)` 이면 `true` → 앱이 `POST /optimize/replan` 자동 호출
+- `resting` 상태가 15분 이상 지속되면 누적 리셋 (법정 최소 휴식 충족)
 
 ### 운행 중 재탐색
 
@@ -291,7 +359,7 @@ POST /optimize/replan
 }
 ```
 
-## 11. 테스트
+## 12. 테스트
 
 ```bash
 cd backend
@@ -302,7 +370,7 @@ pytest -q
 - `tests/test_kakao_local.py` — 지역 배송 모드
 - `tests/test_kakao_long.py` — 장거리 모드
 
-## 12. 주의사항
+## 13. 주의사항
 
 - GraphHopper가 `localhost:8989`에서 실행 중이어야 `/optimize/`, `/demo/route` 동작
 - Kakao API 무료 플랜 10 QPS 제한 — 경유지 4개 초과 시 429 발생 가능
@@ -310,11 +378,11 @@ pytest -q
 - `SECRET_KEY` 기본값은 운영 전 반드시 교체
 - DB 스키마 변경 시 `SCHEMA.md`, `seeds/init_tables.sql`, `models/` 동기화 필요
 
-## 13. 배포
+## 14. 배포
 
 Oracle Cloud 배포 절차는 [DEPLOY.md](DEPLOY.md) 참고.
 
-## 14. 참고 문서
+## 15. 참고 문서
 
 - DB 스키마: [SCHEMA.md](SCHEMA.md)
 - DDL: [backend/seeds/init_tables.sql](backend/seeds/init_tables.sql)

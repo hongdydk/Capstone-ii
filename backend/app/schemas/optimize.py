@@ -22,6 +22,10 @@ class ExtraStopSchema(BaseModel):
     # 예) earliest_sec=3600, latest_sec=7200 → 출발 후 1~2시간 사이 도착
     earliest_sec: int | None = None
     latest_sec: int | None = None
+    # 상차·하차 쌍 지정 — pickup_id 와 동일한 값을 가진 delivery stop 이 반드시 뒤에 방문됨
+    # 예) pickup stop: pickup_id="cargo1", delivery stop: delivery_for="cargo1"
+    pickup_id: str | None = None      # 이 경유지가 상차지임을 표시하는 식별자
+    delivery_for: str | None = None   # 이 경유지가 어떤 pickup_id의 하차지인지
 
 
 class OptimizeRequest(BaseModel):

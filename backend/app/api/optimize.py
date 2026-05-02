@@ -52,6 +52,10 @@ async def optimize(req: OptimizeRequest, db: AsyncSession = Depends(get_db)):
                 wp["earliest_sec"] = es.earliest_sec
             if es.latest_sec is not None:
                 wp["latest_sec"] = es.latest_sec
+            if es.pickup_id is not None:
+                wp["pickup_id"] = es.pickup_id
+            if es.delivery_for is not None:
+                wp["delivery_for"] = es.delivery_for
             waypoints_raw.append(wp)
         elif es.stop_type == "destination":
             # 기존 목적지를 경유지로 후퇴
@@ -113,7 +117,27 @@ async def optimize(req: OptimizeRequest, db: AsyncSession = Depends(get_db)):
     if has_any_tw:
         time_windows = tw_list
 
-    tsp_order = solve_tsp(time_matrix, time_windows=time_windows)
+    # pickup_deliveries 구성: pickup_id / delivery_for 로 쌍 매핑
+    # nodes 인덱스: 0=출발지, 1..n-2=경유지(waypoints_raw), n-1=목적지
+    pickup_deliveries: list[tuple[int, int]] | None = None
+    _pickup_id_to_node_idx: dict[str, int] = {}
+    _delivery_pairs: list[tuple[str, int]] = []
+    for rel_i, wp in enumerate(waypoints_raw):
+        node_idx = rel_i + 1  # nodes 리스트에서 실제 인덱스 (offset 1: 출발지)
+        if wp.get("pickup_id"):
+            _pickup_id_to_node_idx[wp["pickup_id"]] = node_idx
+        if wp.get("delivery_for"):
+            _delivery_pairs.append((wp["delivery_for"], node_idx))
+    if _delivery_pairs:
+        pairs = []
+        for pid, del_idx in _delivery_pairs:
+            pu_idx = _pickup_id_to_node_idx.get(pid)
+            if pu_idx is not None:
+                pairs.append((pu_idx, del_idx))
+        if pairs:
+            pickup_deliveries = pairs
+
+    tsp_order = solve_tsp(time_matrix, time_windows=time_windows, pickup_deliveries=pickup_deliveries)
 
     ordered_nodes = [
         RouteNode(
@@ -274,7 +298,7 @@ async def replan(req: ReplanRequest, db: AsyncSession = Depends(get_db)):
         final_matrix[i][k] = time_matrix[tsp_order[i]][dest_idx]
         final_dist[i][k] = dist_matrix[tsp_order[i]][dest_idx]
 
-    final_route = await insert_rest_stops(
+    final_route, _daily_limit = await insert_rest_stops(
         ordered_nodes, final_matrix, rest_stops_db,
         initial_drive_sec=req.current_drive_sec,
         is_emergency=req.is_emergency,

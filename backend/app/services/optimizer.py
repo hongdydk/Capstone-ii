@@ -6,6 +6,7 @@ def solve_tsp(
     *,
     time_limit_seconds: int = 10,
     time_windows: list[tuple[int, int]] | None = None,
+    pickup_deliveries: list[tuple[int, int]] | None = None,
 ) -> list[int]:
     """
     OR-Tools TSP로 경유지 방문 순서를 최적화합니다.
@@ -15,13 +16,12 @@ def solve_tsp(
     - 인덱스 n-1: 목적지 (고정 — 마지막 방문)
 
     Args:
-        time_matrix       : NxN 이동 시간 행렬 (초 단위)
-        time_limit_seconds: OR-Tools 탐색 시간 제한
-        time_windows      : 노드별 도착 허용 시간 범위 [(earliest_sec, latest_sec), ...]
-                            None 이면 시간 제약 없음.
-                            인덱스는 time_matrix 와 동일. 단위는 출발 기준 경과 초.
-                            예) [(0, 0), (3600, 7200), (0, 86400), (0, 86400)]
-                              → index 1 노드에 출발 후 1h~2h 사이 도착 강제
+        time_matrix        : NxN 이동 시간 행렬 (초 단위)
+        time_limit_seconds : OR-Tools 탐색 시간 제한
+        time_windows       : 노드별 도착 허용 시간 범위 [(earliest_sec, latest_sec), ...]
+                             None 이면 시간 제약 없음. 단위는 출발 기준 경과 초.
+        pickup_deliveries  : 상차→하차 순서 쌍 [(pickup_idx, delivery_idx), ...]
+                             pickup_idx 노드가 반드시 delivery_idx 보다 먼저 방문됨.
 
     Returns:
         최적 방문 인덱스 목록 (0번 출발지 포함, n-1번 목적지 제외)
@@ -43,7 +43,7 @@ def solve_tsp(
     routing.SetArcCostEvaluatorOfAllVehicles(transit_id)
 
     # ── Time Window 제약 ──────────────────────────────────────────────────
-    if time_windows:
+    if time_windows or pickup_deliveries:
         # 최대 가능 시간 = 모든 구간 합산 (상한으로 사용)
         max_horizon = sum(max(row) for row in time_matrix)
         routing.AddDimension(
@@ -54,9 +54,22 @@ def solve_tsp(
             name="Time",
         )
         time_dim = routing.GetDimensionOrDie("Time")
-        for node_idx, (earliest, latest) in enumerate(time_windows):
-            routing_idx = manager.NodeToIndex(node_idx)
-            time_dim.CumulVar(routing_idx).SetRange(earliest, latest)
+
+        if time_windows:
+            for node_idx, (earliest, latest) in enumerate(time_windows):
+                routing_idx = manager.NodeToIndex(node_idx)
+                time_dim.CumulVar(routing_idx).SetRange(earliest, latest)
+
+        # ── Pickup → Delivery 순서 제약 ───────────────────────────────────
+        if pickup_deliveries:
+            for pickup_node, delivery_node in pickup_deliveries:
+                pickup_idx   = manager.NodeToIndex(pickup_node)
+                delivery_idx = manager.NodeToIndex(delivery_node)
+                routing.AddPickupAndDelivery(pickup_idx, delivery_idx)
+                # 상차 누적시간 ≤ 하차 누적시간 강제
+                routing.solver().Add(
+                    time_dim.CumulVar(pickup_idx) <= time_dim.CumulVar(delivery_idx)
+                )
 
     search_params = pywrapcp.DefaultRoutingSearchParameters()
     search_params.first_solution_strategy = (

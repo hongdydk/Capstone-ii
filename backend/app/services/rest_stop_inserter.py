@@ -117,7 +117,8 @@ async def insert_rest_stops(
     accumulated = initial_drive_sec
 
     for i in range(len(ordered_nodes) - 1):
-        result.append(ordered_nodes[i])
+        current_node = ordered_nodes[i]
+        result.append(current_node)
         seg_time = time_matrix[i][i + 1]
 
         # API 미반환 구간(_UNREACHABLE_SEC)은 실제 이동이 없으므로 누적에서 제외
@@ -126,9 +127,9 @@ async def insert_rest_stops(
 
         if accumulated + seg_time >= plan_threshold:
             if picker is not None:
-                best = await picker(ordered_nodes[i], ordered_nodes[i + 1], rest_candidates)
+                best = await picker(current_node, ordered_nodes[i + 1], rest_candidates)
             else:
-                best = _pick_best_rest(ordered_nodes[i], ordered_nodes[i + 1], rest_candidates)
+                best = _pick_best_rest(current_node, ordered_nodes[i + 1], rest_candidates)
             if best:
                 result.append(
                     RouteNode(
@@ -141,7 +142,7 @@ async def insert_rest_stops(
                 )
                 accumulated = 0  # 휴게소 삽입 성공 시에만 리셋
             else:
-                accumulated += seg_time  # 후보 없으면 계속 누적
+                accumulated += seg_time
         else:
             accumulated += seg_time
 

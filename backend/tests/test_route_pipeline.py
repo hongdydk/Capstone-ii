@@ -256,3 +256,42 @@ class TestFullPipeline:
         rest_nodes = [r for r in result if r.type == "rest_stop"]
         assert len(rest_nodes) >= 1
         assert rest_nodes[0].name == "졸음쉼터A"
+
+
+# ── 4. Pickup → Delivery 순서 제약 ────────────────────────────
+
+class TestPickupDelivery:
+    def test_pickup_before_delivery_in_result(self):
+        """
+        pickup_deliveries 제약을 주면 상차지(pickup)가 하차지(delivery) 보다
+        반드시 앞에 배치되어야 합니다.
+        """
+        # 4노드: origin(0) → waypoint1(1,pickup) → waypoint2(2,delivery) → dest(3)
+        # 비용 행렬은 2→1 순서가 더 짧아 보이도록 설정
+        nodes = _make_nodes(4)
+        matrix = [
+            [0,   500, 100, 600],
+            [500,   0, 500, 500],
+            [100, 500,   0, 100],
+            [600, 500, 100,   0],
+        ]
+        # 제약 없으면 OR-Tools이 Node2 → Node1 순 선택 가능
+        # 제약 있으면 Node1(pickup) → Node2(delivery) 강제
+        order_with = solve_tsp(matrix, pickup_deliveries=[(1, 2)])
+        # tsp_order에서 1과 2의 상대 위치 확인 (destination index=3은 제외)
+        pickup_pos   = order_with.index(1)
+        delivery_pos = order_with.index(2)
+        assert pickup_pos < delivery_pos, (
+            f"pickup(idx=1) pos={pickup_pos} must be < delivery(idx=2) pos={delivery_pos}"
+        )
+
+    def test_no_precedence_constraint_allows_any_order(self):
+        """
+        pickup_deliveries 제약 없이도 TSP가 정상 동작하는지 확인합니다.
+        """
+        nodes = _make_nodes(4)
+        matrix = _make_matrix(4, 1_000)
+        order = solve_tsp(matrix)
+        assert 0 in order
+        assert len(order) == 3  # origin + 2 waypoints (목적지 제외)
+

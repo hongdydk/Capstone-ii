@@ -110,7 +110,13 @@ class RouteNode:
     lat: float
     lon: float
     min_rest_minutes: int | None = field(default=None)
-    can_rest: bool = field(default=True)  # 이 지점에서 휴식·운전시간 리셋 가능 여부
+    # 경유지는 상·하차 작업 지점 → 법정 휴식 아님 → 기본값 False (누적 운전시간 유지)
+    # can_rest=True 가 되는 경우:
+    #   1. type='rest_stop' 으로 시스템이 삽입한 휴게소 (호출 측에서 True 명시)
+    #   2. 기사가 "여기서 쉼" 을 명시적으로 선택한 경유지 (식당·주유소 등)
+    # TODO(상용화): Waypoint 도착 후 실제 체류 시간(dwell_time_min)을 기록해
+    #   dwell_time_min >= MIN_REST_MIN(15분) 이면 사후에 누적 운전시간을 보정하는 로직 추가
+    can_rest: bool = field(default=False)
 
     def to_dict(self) -> dict:
         d = {"type": self.type, "name": self.name, "lat": self.lat, "lon": self.lon}
@@ -304,6 +310,37 @@ def plan_rest_stops_from_polyline(
                 initial_drive_sec=accumulated_drive,
                 is_emergency=is_emergency,
             )
+
+            # ── 경유지 직전 휴게소 이월 처리 ─────────────────────────────────
+            # 마지막 휴게소가 경유지 20분 이내에 삽입됐으면, 경유지를 먼저 방문하고
+            # 그 휴게소를 다음 구간 초입으로 미룬다.
+            # (실제 법정 시간은 보장: MAX_DRIVE_SEC 초과 전 어차피 다음 구간 직후 삽입)
+            _DEFER_THRESH_SEC = 1_200  # 20분
+            last_rest_node = next(
+                (n for n in reversed(seg_result) if n.type == "rest_stop"), None
+            )
+            deferred_rest: dict | None = None
+            if last_rest_node is not None:
+                time_to_junction = _haversine_sec(
+                    last_rest_node.lat, last_rest_node.lon,
+                    ordered_nodes[i + 1].lat, ordered_nodes[i + 1].lon,
+                )
+                if time_to_junction <= _DEFER_THRESH_SEC:
+                    # 이 휴게소를 seg_result에서 제거하고 다음 구간으로 이월
+                    deferred_rest = {
+                        "name": last_rest_node.name,
+                        "latitude": last_rest_node.lat,
+                        "longitude": last_rest_node.lon,
+                        "is_active": True,
+                        "direction": None,
+                        "type": "truck_rest",
+                    }
+                    seg_result = [n for n in seg_result if not (
+                        n.type == "rest_stop"
+                        and n.lat == last_rest_node.lat
+                        and n.lon == last_rest_node.lon
+                    )]
+
             for node in seg_result[:-1]:  # 마지막(=다음 구간 시작점) 제외
                 if node.type == "rest_stop":
                     used_coords.add((node.lat, node.lon))
@@ -312,15 +349,31 @@ def plan_rest_stops_from_polyline(
             # 다음 구간 initial_drive_sec 계산
             n_stops = sum(1 for n in seg_result if n.type == "rest_stop")
             junction = ordered_nodes[i + 1]  # 경유지 or 목적지
-            if n_stops > 0:
-                # 휴게소가 있었으면 마지막 휴게소 이후 남은 구간만 누적
-                # 균등 분할 근사: (initial + seg) / (n_stops + 1)
-                accumulated_drive = (accumulated_drive + seg_time) // (n_stops + 1)
+            if deferred_rest is not None:
+                # 이월된 휴게소: 경유지까지의 운전 시간이 accumulated_drive 에 더해진 상태
+                # → 경유지 직후 바로 휴게가 필요하므로 accumulated_drive 를 MAX_DRIVE_SEC 로 세팅
+                accumulated_drive = MAX_DRIVE_SEC
+                # 이월 휴게소를 다음 구간 avail 최앞에 추가 (우선 선택)
+                if deferred_rest not in rest_candidates:
+                    rest_candidates = [deferred_rest] + rest_candidates
+            elif n_stops > 0:
+                # 마지막 휴게소 이후 다음 경유지/목적지까지 Haversine 시간으로 정확히 추정
+                last_rest = next(
+                    (n for n in reversed(seg_result) if n.type == "rest_stop"),
+                    None,
+                )
+                if last_rest:
+                    accumulated_drive = _haversine_sec(
+                        last_rest.lat, last_rest.lon,
+                        junction.lat, junction.lon,
+                    )
+                else:
+                    accumulated_drive = 0
             elif junction.can_rest:
-                # 경유지에서 쉼 → 리셋
+                # 기사가 명시적으로 휴식 선택한 경유지 → 누적 운전시간 리셋
                 accumulated_drive = 0
             else:
-                # 경유지 통과 (can_rest=False) → 누적 유지
+                # 상·하차 작업 경유지 (can_rest=False) — 법정 휴식 아님 → 누적 유지
                 accumulated_drive += seg_time
 
         result.append(ordered_nodes[-1])

@@ -63,9 +63,20 @@ def solve_tsp(
         # ── Pickup → Delivery 순서 제약 ───────────────────────────────────
         if pickup_deliveries:
             for pickup_node, delivery_node in pickup_deliveries:
+                # 출발지(0)는 start depot — AddPickupAndDelivery에 넣으면
+                # OR-Tools 내부 크래시 발생. 출발지는 항상 첫 방문이므로
+                # 상차지==0 쌍은 제약 추가를 건너뜁니다.
+                if pickup_node == 0:
+                    continue
+                # 목적지(n-1)는 end depot — 동일 이유로 생략
+                if delivery_node == n - 1:
+                    continue
                 pickup_idx   = manager.NodeToIndex(pickup_node)
                 delivery_idx = manager.NodeToIndex(delivery_node)
                 routing.AddPickupAndDelivery(pickup_idx, delivery_idx)
+                routing.solver().Add(
+                    routing.VehicleVar(pickup_idx) == routing.VehicleVar(delivery_idx)
+                )
                 # 상차 누적시간 ≤ 하차 누적시간 강제
                 routing.solver().Add(
                     time_dim.CumulVar(pickup_idx) <= time_dim.CumulVar(delivery_idx)

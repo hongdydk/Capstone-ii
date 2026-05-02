@@ -27,7 +27,21 @@ class DemoNode(BaseModel):
     name: str
     lat: float
     lon: float
-    can_rest: bool = True  # 이 지점에서 휴식 가능 여부 (False=통과점, 누적 운전시간 유지)
+    # 경유지는 상·하차 작업 지점이므로 기본적으로 법정 휴식으로 인정하지 않음.
+    # 법정 휴식 인정 기준: ① 시스템 삽입 휴게소, ② 기사가 명시적으로 can_rest=True 설정한 경유지(식당 등)
+    # TODO(상용화): 경유지 실제 체류 시간(dwell_time_min)을 입력받아
+    #   dwell_time_min >= MIN_REST_MIN(15분) 이면 can_rest=True 로 자동 판정하는 로직 추가
+    can_rest: bool = False  # False=상하차 작업점(누적 운전시간 유지), True=실제 휴식점(리셋)
+
+    # 도착 시간 제약 (출발 기준 경과 분) — None 이면 제약 없음
+    # 예) 일간 출발 기준 09:00 창고 도착 제약 → time_window=[60, 180] (움직임 1시간 ~ 3시간 후)
+    # 주의: OR-Tools 해가 없으면 제약을 완화해서라도 경로를 반환합니다
+    time_window: tuple[int, int] | None = None  # (earliest_min, latest_min)
+
+    # 상차→하차 순서 제약: 이 노드(하차지)에서 내릴 화물을 실은 상차지 인덱스 (0-based, nodes 리스트 기준)
+    # 예) 출발지(0)에서 싣고 경유지2(2)에서 내린다 → nodes[2].pickup_from_idx=0
+    #   → 동일 상차지(0)에서 여러 하차지(2,3,4)를 설정할 수 있어 다중 납품 지원
+    pickup_from_idx: int | None = None  # 이 하차지의 상차지 인덱스
 
 
 class DemoRouteRequest(BaseModel):
@@ -229,9 +243,28 @@ async def demo_route(req: DemoRouteRequest, db: AsyncSession = Depends(get_db)):
     # 1. NxN 시간·거리 행렬
     time_matrix, dist_matrix = await gh_svc.build_time_matrix(nodes, profile=req.profile)
 
-    # 2. TSP
+    # 2. TSP — time_window / pickup_from_idx 필드를 OR-Tools 형식으로 변환
+    #    time_window: 분 단위를 초 단위로 변환 (* 60)
+    #    pickup_from_idx: 하차 노드가 자신의 상차지를 가리킴 → (상차idx, 하차idx) 쌍 구성
+    tsp_time_windows: list[tuple[int, int]] | None = None
+    tsp_pickups: list[tuple[int, int]] | None = None
+
+    if any(n.time_window for n in req.nodes):
+        tsp_time_windows = [
+            (tw[0] * 60, tw[1] * 60) if (tw := n.time_window) else (0, 10_000_000)
+            for n in req.nodes
+        ]
+
+    pickup_pairs = [
+        (n.pickup_from_idx, i)
+        for i, n in enumerate(req.nodes)
+        if n.pickup_from_idx is not None
+    ]
+    if pickup_pairs:
+        tsp_pickups = pickup_pairs
+
     dest_idx = len(nodes) - 1
-    tsp_order = solve_tsp(time_matrix)
+    tsp_order = solve_tsp(time_matrix, time_windows=tsp_time_windows, pickup_deliveries=tsp_pickups)
     if tsp_order and tsp_order[-1] == dest_idx:
         tsp_order = tsp_order[:-1]
 

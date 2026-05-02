@@ -54,6 +54,28 @@
     color: #9ca3af; font-size: 16px; line-height: 1; padding: 0 2px;
   }
   .node-remove:hover { color: #ef4444; }
+  .node-opts-btn {
+    background: none; border: none; cursor: pointer;
+    color: #9ca3af; font-size: 13px; padding: 0 2px; flex-shrink: 0;
+  }
+  .node-opts-btn:hover { color: #6366f1; }
+  .node-opts-panel {
+    background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px;
+    padding: 8px 10px; margin-top: -4px;
+    display: flex; flex-direction: column; gap: 6px; font-size: 12px;
+  }
+  .opts-row { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+  .opts-row label { color: #374151; cursor: pointer; display: flex; align-items: center; gap: 4px; }
+  .opts-row input[type="number"],
+  .opts-row input[type="time"] {
+    width: 76px; padding: 3px 5px; border: 1px solid #d1d5db;
+    border-radius: 4px; font-size: 12px;
+  }
+  .opts-row select {
+    flex: 1; padding: 3px 6px; border: 1px solid #d1d5db;
+    border-radius: 4px; font-size: 12px; min-width: 80px;
+  }
+  .opts-label { color: #6b7280; white-space: nowrap; }
 
   .add-hint {
     font-size: 12px; color: #6b7280; text-align: center;
@@ -223,6 +245,10 @@
       <option value="car">🚗 승용차 (car)</option>
     </select>
 
+    <div class="section-title">출발 시각</div>
+    <input type="datetime-local" id="departure-time"
+      style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+
     <div class="section-title">경유지 설정</div>
     <div id="click-mode-row">
       <button class="mode-btn active" data-mode="origin">📍 출발지</button>
@@ -311,7 +337,7 @@ const ICONS = {
 async function loadTruckRests() {
   if (truckRestMarkers.length > 0) return; // 이미 로드됨
   try {
-    const data = await fetch('http://localhost:8000/demo/truck-rests').then(r => r.json());
+    const data = await fetch(`${location.origin}/demo/truck-rests`).then(r => r.json());
     data.forEach(r => {
       const m = L.marker([r.lat, r.lon], { icon: ICONS.truck_rest() })
         .bindPopup(`<b>🚛 ${r.name}</b><br><span style="color:#6b7280;font-size:11px">${r.type}${r.direction ? '<br>' + r.direction : ''}</span>`);
@@ -364,7 +390,8 @@ map.on('click', (e) => {
               : type === 'destination' ? '목적지'
               : `경유지 ${nodes.filter(n => n.type === 'waypoint').length + 1}`;
 
-  nodes.push({ name: label, lat, lon: lng, type });
+  nodes.push({ name: label, lat, lon: lng, type,
+    can_rest: false, tw_min: null, tw_max: null, pickup_from_idx: null });
 
   // 경유지 추가 후 자동으로 경유지 모드 유지, 다음 클릭 준비
   renderNodesList();
@@ -379,24 +406,77 @@ function renderNodesList() {
     list.innerHTML = '<div class="add-hint">추가된 노드 없음</div>';
     return;
   }
-  nodes.forEach((node, idx) => {
+  // 표시 순서: 출발지 → 경유지(삽입순) → 목적지  (payload 빌드와 동일한 순서)
+  const displayItems = [
+    ...nodes.map((n, i) => ({ n, i })).filter(x => x.n.type === 'origin'),
+    ...nodes.map((n, i) => ({ n, i })).filter(x => x.n.type === 'waypoint'),
+    ...nodes.map((n, i) => ({ n, i })).filter(x => x.n.type === 'destination'),
+  ];
+  let wpSeq = 0;
+  displayItems.forEach(({ n: node, i: idx }) => {
+    // ── 노드 행 ──
     const item = document.createElement('div');
     item.className = 'node-item';
     const badgeClass = `badge-${node.type === 'waypoint' ? 'waypoint' : node.type}`;
     const badgeText = node.type === 'origin' ? '출'
                     : node.type === 'destination' ? '착'
-                    : idx;
+                    : (++wpSeq);  // 경유지 순서번호 (1, 2, 3...)
     item.innerHTML = `
       <div class="node-badge ${badgeClass}">${badgeText}</div>
       <span class="node-label" title="${node.lat.toFixed(5)}, ${node.lon.toFixed(5)}">${node.name}</span>
-      <button class="node-remove" data-idx="${idx}" title="제거">×</button>`;
+      <button class="node-opts-btn" title="상세 설정 (시간 제약 / 휴식 여부 / 상차→하차)">⚙</button>
+      <button class="node-remove" title="제거">×</button>`;
     list.appendChild(item);
-  });
-  list.querySelectorAll('.node-remove').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      nodes.splice(+e.target.dataset.idx, 1);
+
+    // ── 옵션 패널 ──
+    const panel = document.createElement('div');
+    panel.className = 'node-opts-panel';
+    panel.style.display = 'none';
+
+    // pickup_from 선택지: 자신 제외 (이 화물이 어디서 실렸는가)
+    const pickupOpts = nodes.map((n2, i2) => {
+      if (i2 === idx) return '';
+      const sel = node.pickup_from_idx === i2 ? 'selected' : '';
+      return `<option value="${i2}" ${sel}>${n2.name}</option>`;
+    }).join('');
+
+    panel.innerHTML = `
+      <div class="opts-row">
+        <label><input type="checkbox" class="chk-can-rest" ${node.can_rest ? 'checked' : ''}>
+          이 지점에서 법정 휴식 (누적 운전시간 리셋)</label>
+      </div>
+      <div class="opts-row">
+        <span class="opts-label">도착 시각 제약</span>
+        <input type="time" class="tw-min" value="${node.tw_min ?? ''}">
+        <span class="opts-label">~</span>
+        <input type="time" class="tw-max" value="${node.tw_max ?? ''}">
+      </div>
+      <div class="opts-row">
+        <span class="opts-label">여기서 하차할 화물의 상차지</span>
+        <select class="pickup-sel"><option value="">없음</option>${pickupOpts}</select>
+      </div>`;
+    list.appendChild(panel);
+
+    // 이벤트
+    item.querySelector('.node-opts-btn').addEventListener('click', () => {
+      panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    });
+    item.querySelector('.node-remove').addEventListener('click', () => {
+      nodes.splice(idx, 1);
       renderNodesList();
       renderMarkers();
+    });
+    panel.querySelector('.chk-can-rest').addEventListener('change', e => {
+      nodes[idx].can_rest = e.target.checked;
+    });
+    panel.querySelector('.tw-min').addEventListener('input', e => {
+      nodes[idx].tw_min = e.target.value || null;  // "HH:MM" string or null
+    });
+    panel.querySelector('.tw-max').addEventListener('input', e => {
+      nodes[idx].tw_max = e.target.value || null;
+    });
+    panel.querySelector('.pickup-sel').addEventListener('change', e => {
+      nodes[idx].pickup_from_idx = e.target.value !== '' ? +e.target.value : null;
     });
   });
 }
@@ -415,6 +495,26 @@ function renderMarkers() {
     m.addTo(map);
     markers.push(m);
   });
+}
+
+// ── 출발 시각 기본값: 오늘 09:00 ───────────────────────────────────────────────
+(function initDepartureTime() {
+  const now = new Date();
+  now.setHours(9, 0, 0, 0);
+  // datetime-local 형식: YYYY-MM-DDTHH:MM
+  const pad = n => String(n).padStart(2, '0');
+  const val = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T09:00`;
+  document.getElementById('departure-time').value = val;
+})();
+
+// 절대 시각(HH:MM) → 출발 후 경과 분
+function timeToMinAfterDep(timeStr, depDate) {
+  const [h, m] = timeStr.split(':').map(Number);
+  const target = new Date(depDate);
+  target.setHours(h, m, 0, 0);
+  // 도착 시각이 출발보다 이르면 다음 날로 처리
+  if (target <= depDate) target.setDate(target.getDate() + 1);
+  return Math.round((target - depDate) / 60000);
 }
 
 // ── 경로 계산 ─────────────────────────────────────────────────────────────────
@@ -439,16 +539,38 @@ document.getElementById('btn-calc').addEventListener('click', async () => {
   const ordered = [origin, ...waypoints, dest];
 
   const profile = document.getElementById('profile-select').value;
+
+  // 출발 시각 파싱
+  const depInput = document.getElementById('departure-time').value;
+  const depDate  = depInput ? new Date(depInput) : (() => { const d=new Date(); d.setHours(9,0,0,0); return d; })();
+
+  // ordered → API 인덱스 매핑 (pickup_from_idx 변환용)
+  const nodeToOrderedIdx = new Map(ordered.map((n, i) => [n, i]));
+
   const payload = {
     profile,
-    nodes: ordered.map(n => ({ name: n.name, lat: n.lat, lon: n.lon })),
+    nodes: ordered.map(n => {
+      const obj = { name: n.name, lat: n.lat, lon: n.lon, can_rest: n.can_rest ?? false };
+      // 도착 시각 제약: 절대 시각(HH:MM) → 출발 후 경과 분으로 변환
+      if (n.tw_min != null && n.tw_max != null) {
+        const earliest = timeToMinAfterDep(n.tw_min, depDate);
+        const latest   = timeToMinAfterDep(n.tw_max, depDate);
+        if (earliest < latest) obj.time_window = [earliest, latest];
+      }
+      // 하차지→상차지 순서 제약 (이 노드에서 내릴 화물의 상차지)
+      if (n.pickup_from_idx != null) {
+        const ordIdx = nodeToOrderedIdx.get(nodes[n.pickup_from_idx]);
+        if (ordIdx != null) obj.pickup_from_idx = ordIdx;
+      }
+      return obj;
+    }),
   };
 
   setLoading(true);
   document.getElementById('result-box').style.display = 'none';
 
   try {
-    const resp = await fetch('http://localhost:8000/demo/route', {
+    const resp = await fetch(`${location.origin}/demo/route`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -636,7 +758,7 @@ async function updatePolyline() {
   const profile = document.getElementById('profile-select').value;
   const activeRoute = _altRoutes[_activeAlt];
   try {
-    const resp = await fetch('http://localhost:8000/demo/polyline', {
+    const resp = await fetch(`${location.origin}/demo/polyline`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

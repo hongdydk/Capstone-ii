@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core.database import Base, engine
 import app.models  # noqa: F401 — create_all이 모든 테이블을 인식하도록 등록
-from app.api import optimize, vehicles, drivers, rest_stops, trips, location_logs, demo
+from app.api import demo, drivers, location_logs, optimize, rest_stops, trips, vehicles, ws
 
 
 @asynccontextmanager
@@ -38,6 +38,7 @@ app.include_router(rest_stops.router,     prefix="/rest-stops",     tags=["휴�
 app.include_router(trips.router,          prefix="/trips",          tags=["운행"])
 app.include_router(location_logs.router,  prefix="/location-logs",  tags=["위치 로그"])
 app.include_router(demo.router,           prefix="/demo",           tags=["데모"])
+app.include_router(ws.router,             prefix="/ws",             tags=["실시간"])
 
 # frontend/ 정적 파일 서빙 — http://localhost:8000/map
 import pathlib

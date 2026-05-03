@@ -25,7 +25,7 @@ sudo apt-get install -y git python3.11 python3.11-venv python3-pip \
     osmium-tool    # OSM PBF 처리용
 ```
 
-### Java 21 설치 (GraphHopper 10.x 요구사항)
+### Java 21 설치 (GraphHopper 11.x 요구사항)
 
 ```bash
 sudo apt-get install -y openjdk-21-jre-headless
@@ -142,7 +142,9 @@ python Engine/patch_osm.py
 
 ```bash
 cd /opt/routeon/Engine
-wget https://github.com/graphhopper/graphhopper/releases/download/10.0/graphhopper-web-10.0.jar
+wget https://repo1.maven.org/maven2/com/graphhopper/graphhopper-web/11.0/graphhopper-web-11.0.jar
+# 또는 GitHub Releases에서 직접 다운로드:
+# https://github.com/graphhopper/graphhopper/releases/tag/11.0
 ```
 
 ### 7-4. config.yml 확인
@@ -164,7 +166,7 @@ cd /opt/routeon/Engine
 mkdir -p logs graph-cache
 
 # 첫 실행 — graph-cache 빌드 (15~30분 소요, 메모리 4 GB 사용)
-java -Xmx6g -jar graphhopper-web-10.0.jar server config.yml
+java -Xmx6g -jar graphhopper-web-11.0.jar server config.yml
 ```
 
 > 로그에 `Started DropwizardWebServer` 가 출력되면 성공.  
@@ -185,7 +187,7 @@ After=network.target
 [Service]
 User=ubuntu
 WorkingDirectory=/opt/routeon/Engine
-ExecStart=/usr/bin/java -Xmx6g -jar graphhopper-web-10.0.jar server config.yml
+ExecStart=/usr/bin/java -Xmx6g -jar graphhopper-web-11.0.jar server config.yml
 Restart=on-failure
 RestartSec=10
 

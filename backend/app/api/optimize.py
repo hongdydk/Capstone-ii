@@ -12,7 +12,7 @@ from app.schemas.optimize import (
     ReplanRequest,
     RouteNodeSchema,
 )
-from app.services import kakao as kakao_svc
+from app.services import graphhopper as gh_svc
 from app.services.optimizer import solve_tsp, validate_tsp_constraints
 from app.services.rest_stop_inserter import RouteNode, insert_rest_stops
 
@@ -78,22 +78,11 @@ async def optimize(req: OptimizeRequest, db: AsyncSession = Depends(get_db)):
     ]
     nodes += waypoints_raw
     nodes.append({"name": dest_name, "lat": dest_lat, "lon": dest_lon})
-    veh = _resolve_vehicle_params(trip, req)
 
     # ------------------------------------------------------------------
-    # 2. Kakao NxN 시간·거리 행렬 계산
+    # 2. GraphHopper NxN 시간·거리 행렬 계산
     # ------------------------------------------------------------------
-    resolved_mode = (
-        kakao_svc.auto_detect_route_mode(nodes)
-        if req.route_mode == "auto"
-        else req.route_mode
-    )
-    time_matrix, dist_matrix = await kakao_svc.build_time_matrix(
-        nodes,
-        route_mode=resolved_mode,
-        departure_time=trip.departure_time,
-        **veh,
-    )
+    time_matrix, dist_matrix = await gh_svc.build_time_matrix(nodes, profile="truck")
 
     # ------------------------------------------------------------------
     # 3. OR-Tools TSP 경유지 순서 최적화
@@ -208,7 +197,6 @@ async def optimize(req: OptimizeRequest, db: AsyncSession = Depends(get_db)):
         final_matrix,
         rest_candidates,
         initial_drive_sec=req.initial_drive_sec,
-        picker=kakao_svc.find_best_rest_stop,
     )
 
     # ------------------------------------------------------------------
@@ -257,19 +245,7 @@ async def replan(req: ReplanRequest, db: AsyncSession = Depends(get_db)):
     nodes += req.remaining_waypoints
     nodes.append({"name": req.dest_name, "lat": req.dest_lat, "lon": req.dest_lon})
 
-    veh = {
-        "height_m": req.vehicle_height_m or trip.vehicle_height_m,
-        "weight_kg": req.vehicle_weight_kg or trip.vehicle_weight_kg,
-        "length_cm": req.vehicle_length_cm or trip.vehicle_length_cm,
-        "width_cm": req.vehicle_width_cm or trip.vehicle_width_cm,
-    }
-
-    resolved_mode = (
-        kakao_svc.auto_detect_route_mode(nodes)
-        if req.route_mode == "auto"
-        else req.route_mode
-    )
-    time_matrix, dist_matrix = await kakao_svc.build_time_matrix(nodes, route_mode=resolved_mode, **veh)
+    time_matrix, dist_matrix = await gh_svc.build_time_matrix(nodes, profile="truck")
     tsp_order = solve_tsp(time_matrix)
 
     ordered_nodes = [
@@ -314,7 +290,6 @@ async def replan(req: ReplanRequest, db: AsyncSession = Depends(get_db)):
         ordered_nodes, final_matrix, rest_stops_db,
         initial_drive_sec=req.current_drive_sec,
         is_emergency=req.is_emergency,
-        picker=kakao_svc.find_best_rest_stop,
     )
 
     rest_count = sum(1 for nd in final_route if nd.type == "rest_stop")

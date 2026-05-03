@@ -124,7 +124,21 @@ wget https://download.geofabrik.de/asia/south-korea-latest.osm.pbf \
     -O south-korea-latest.osm.pbf
 ```
 
-### 7-2. 화물차 제한 패치 적용
+### 7-2. 국가표준노드링크 다운로드
+
+```bash
+# ITS 국가교통정보센터에서 노드링크 데이터 다운로드 (로그인 필요)
+# 다운로드 주소: https://www.its.go.kr/opendata/nodelinkFileSDownload/DF_210/0
+# 다운로드 후 압축 해제 → Engine/[날짜]NODELINKDATA/ 폴더에 위치
+# 예: /opt/routeon/Engine/[2026-01-13]NODELINKDATA/MOCT_LINK.shp
+
+# 서버로 전송 (로컬에서 실행)
+# scp -r [날짜]NODELINKDATA/ ubuntu@서버IP:/opt/routeon/Engine/
+```
+
+> `patch_osm.py`의 `MOCT_SHP` 변수가 해당 폴더 경로를 가리키는지 확인하세요.
+
+### 7-3. 화물차 제한 패치 적용
 
 ```bash
 cd /opt/routeon
@@ -331,10 +345,11 @@ sudo systemctl restart graphhopper
 |---|---|---|
 | `south-korea-latest.osm.pbf` | ~264 MB | Geofabrik에서 다운로드 주소: https://download.geofabrik.de/asia/south-korea-latest.osm.pbf 
 사이트 주소: https://download.geofabrik.de/asia/south-korea.html|
+| `[날짜]NODELINKDATA/` | ~835 MB | 국가표준노드링크 — ITS 국가교통정보센터: https://www.its.go.kr/opendata/nodelinkFileSDownload/DF_210/0 (로그인 필요 없음, scp로 서버 전송) |
 | `south-korea-patched.osm.pbf` | ~265 MB | patch_osm.py로 생성 |
-| `graphhopper-web-10.0.jar` | ~45 MB | GitHub Releases에서 다운로드 주소: https://repo1.maven.org/maven2/com/graphhopper/graphhopper-web/11.0/graphhopper-web-11.0.jar 
+| `graphhopper-web-11.0.jar` | ~45 MB | GitHub Releases에서 다운로드 주소: https://repo1.maven.org/maven2/com/graphhopper/graphhopper-web/11.0/graphhopper-web-11.0.jar 
 사이트 주소: https://github.com/graphhopper/graphhopper|
 | `graph-cache/` | ~372 MB | GraphHopper 첫 실행 시 자동 생성 |
 | 소스코드 + 설정 | ~1 MB | git clone |
 
-**Git push 대상: ~1 MB / 서버 실제 사용: ~700 MB**
+**Git push 대상: ~1 MB / 서버 실제 사용: ~1.8 GB**

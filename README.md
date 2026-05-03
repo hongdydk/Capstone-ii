@@ -174,6 +174,12 @@ cd Engine
 # 최초 1회: OSM 다운로드 + 화물차 패치 + graph-cache 빌드 (~15분)
 # (south-korea-latest.osm.pbf는 .gitignore 대상 — 직접 다운로드 필요)
 wget https://download.geofabrik.de/asia/south-korea-latest.osm.pbf
+
+# 국가표준노드링크 다운로드 (.gitignore 대상 — 직접 다운로드 필요)
+# ITS 국가교통정보센터: https://www.its.go.kr/opendata/nodelinkFileSDownload/DF_210/0
+# 다운로드 후 압축 해제 → Engine/[날짜]NODELINKDATA/ 폴더에 MOCT_LINK.shp 등 위치
+# patch_osm.py의 MOCT_SHP 경로가 해당 폴더를 가리키도록 확인
+
 python ../Engine/patch_osm.py   # → south-korea-patched.osm.pbf 생성
 # graphhopper-web-10.0.jar도 직접 다운로드 필요 (GitHub Releases)
 

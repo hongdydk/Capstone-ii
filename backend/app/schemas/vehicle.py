@@ -8,6 +8,7 @@ class VehicleBase(BaseModel):
     weight_kg: float
     length_cm: float | None = None
     width_cm: float | None = None
+    max_load_kg: float | None = None  # 최대 적재 중량(kg)
 
 
 class VehicleCreate(VehicleBase):
@@ -20,6 +21,7 @@ class VehiclePatch(BaseModel):
     weight_kg: float | None = None
     length_cm: float | None = None
     width_cm: float | None = None
+    max_load_kg: float | None = None
     is_active: bool | None = None
 
 

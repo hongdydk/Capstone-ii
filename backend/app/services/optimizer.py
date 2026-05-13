@@ -1,3 +1,5 @@
+import math
+
 from ortools.constraint_solver import pywrapcp, routing_enums_pb2
 
 
@@ -164,3 +166,130 @@ def solve_tsp(
         index = solution.Value(routing.NextVar(index))
 
     return route
+
+
+def solve_vrptw(
+    time_matrix: list[list[int]],
+    *,
+    num_vehicles: int,
+    depot: int = 0,
+    vehicle_capacities: list[int] | None = None,
+    demands: list[int] | None = None,
+    time_windows: list[tuple[int, int]] | None = None,
+    time_limit_seconds: int = 30,
+    max_nodes_per_vehicle: int | None = None,
+) -> tuple[list[list[int]], list[int]] | None:
+    """
+    OR-Tools VRPTW로 다차량 경로를 최적화합니다.
+
+    Args:
+        time_matrix        : NxN 이동 시간 행렬 (초 단위). 인덱스 0 = depot.
+        num_vehicles       : 투입 차량 수
+        depot              : depot 노드 인덱스 (기본 0)
+        vehicle_capacities : 차량별 최대 적재량 (정수 단위). None이면 용량 제약 없음.
+        demands            : 노드별 수요량 (정수 단위, depot=0). None이면 용량 제약 없음.
+        time_windows       : 노드별 도착 허용 시간 [(earliest_sec, latest_sec), ...]
+        time_limit_seconds : OR-Tools 탐색 시간 제한
+
+    Returns:
+        (vehicle_routes, unserved_nodes)
+          vehicle_routes : 차량별 방문 노드 인덱스 목록 (depot 제외)
+          unserved_nodes : 배정하지 못한 노드 인덱스 목록
+        None : 해 없음
+    """
+    n = len(time_matrix)
+    if n <= 1:
+        return [[]] * num_vehicles, []
+
+    manager = pywrapcp.RoutingIndexManager(n, num_vehicles, depot)
+    routing = pywrapcp.RoutingModel(manager)
+
+    # ── 이동 시간 콜백 ────────────────────────────────────────────────────
+    def transit_callback(from_index: int, to_index: int) -> int:
+        return time_matrix[manager.IndexToNode(from_index)][manager.IndexToNode(to_index)]
+
+    transit_id = routing.RegisterTransitCallback(transit_callback)
+    routing.SetArcCostEvaluatorOfAllVehicles(transit_id)
+
+    # ── Time 차원 (항상 추가 — 시간창 없어도 비용 추적용) ──────────────────
+    max_time = sum(max(row) for row in time_matrix)
+    routing.AddDimension(
+        transit_id,
+        slack_max=max_time,
+        capacity=max_time,
+        fix_start_cumul_to_zero=True,
+        name="Time",
+    )
+    time_dim = routing.GetDimensionOrDie("Time")
+
+    if time_windows:
+        for node_idx, (earliest, latest) in enumerate(time_windows):
+            idx = manager.NodeToIndex(node_idx)
+            time_dim.CumulVar(idx).SetRange(earliest, latest)
+
+    # ── 적재 용량 차원 ────────────────────────────────────────────────────
+    if vehicle_capacities and demands:
+        def demand_callback(from_index: int) -> int:
+            return demands[manager.IndexToNode(from_index)]
+
+        demand_id = routing.RegisterUnaryTransitCallback(demand_callback)
+        routing.AddDimensionWithVehicleCapacity(
+            demand_id,
+            0,                   # slack 없음 (초과 불가)
+            vehicle_capacities,  # 차량별 최대 용량
+            True,                # 시작 누적값 0
+            "Capacity",
+        )
+
+    # ── 차량당 최대 방문 수 제한 (골고루 배분) ──────────────────────────────
+    n_delivery = n - 1  # depot 제외 배송지 수
+    _max_per_veh = max_nodes_per_vehicle or (math.ceil(n_delivery / num_vehicles) + 1)
+
+    def count_callback(from_index: int) -> int:
+        node = manager.IndexToNode(from_index)
+        return 0 if node == depot else 1
+
+    count_id = routing.RegisterUnaryTransitCallback(count_callback)
+    routing.AddDimensionWithVehicleCapacity(
+        count_id,
+        0,
+        [_max_per_veh] * num_vehicles,
+        True,
+        "Count",
+    )
+
+    # ── 미배정 허용 (고비용 패널티 — 제약 충돌 시 노드 드롭) ──────────────
+    _DROP_PENALTY = max_time * n * 2
+    for node in range(1, n):  # depot(0) 제외
+        routing.AddDisjunction([manager.NodeToIndex(node)], _DROP_PENALTY)
+
+    # ── 탐색 파라미터 ─────────────────────────────────────────────────────
+    search_params = pywrapcp.DefaultRoutingSearchParameters()
+    search_params.first_solution_strategy = (
+        routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
+    )
+    search_params.local_search_metaheuristic = (
+        routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
+    )
+    search_params.time_limit.seconds = time_limit_seconds
+
+    solution = routing.SolveWithParameters(search_params)
+    if not solution:
+        return None
+
+    # ── 결과 추출 ─────────────────────────────────────────────────────────
+    routes: list[list[int]] = []
+    for v in range(num_vehicles):
+        route: list[int] = []
+        index = routing.Start(v)
+        while not routing.IsEnd(index):
+            node = manager.IndexToNode(index)
+            if node != depot:
+                route.append(node)
+            index = solution.Value(routing.NextVar(index))
+        routes.append(route)
+
+    served = {node for route in routes for node in route}
+    unserved = [i for i in range(1, n) if i not in served]
+
+    return routes, unserved

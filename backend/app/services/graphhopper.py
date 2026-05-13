@@ -2,6 +2,7 @@ import asyncio
 from math import atan2, cos, radians, sin, sqrt
 
 import httpx
+from fastapi import HTTPException
 
 GH_BASE = "http://localhost:8989"
 
@@ -80,9 +81,15 @@ async def get_route_with_stats(
     for node in nodes:
         params.append(("point", f"{node['lat']},{node['lon']}"))
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        resp = await client.get(f"{GH_BASE}/route", params=params)
-        resp.raise_for_status()
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.get(f"{GH_BASE}/route", params=params)
+    except httpx.ConnectError:
+        raise HTTPException(status_code=503, detail="경로 서버(GraphHopper)에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.")
+    if resp.status_code == 400:
+        msg = resp.json().get("message", "경로를 찾을 수 없습니다.")
+        raise HTTPException(status_code=422, detail=f"GraphHopper: {msg}")
+    resp.raise_for_status()
 
     path = resp.json()["paths"][0]
     polyline = [[c[1], c[0]] for c in path["points"]["coordinates"]]
@@ -245,20 +252,23 @@ async def get_route_alternatives(
         async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.get(f"{GH_BASE}/route", params=params)
             resp.raise_for_status()
-        paths = resp.json()["paths"]
-        results = [
-            {
-                "polyline": [[c[1], c[0]] for c in path["points"]["coordinates"]],
-                "time_sec": int(path["time"] / 1000),
-                "dist_m": int(path["distance"]),
-            }
-            for path in paths
-        ]
-        # 최적 경로 대비 1.4배 초과하는 대안은 제거 (GH가 비정상 경로를 반환하는 경우 방어)
-        if results:
-            best_time = results[0]["time_sec"] or 1
-            results = [r for r in results if r["time_sec"] <= best_time * 1.45]
-        return results if results else [{"polyline": await get_route_geometry(nodes, profile), "time_sec": 0, "dist_m": 0}]
+    except httpx.ConnectError:
+        raise HTTPException(status_code=503, detail="경로 서버(GraphHopper)에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.")
     except Exception:
         polyline = await get_route_geometry(nodes, profile)
         return [{"polyline": polyline, "time_sec": 0, "dist_m": 0}]
+
+    paths = resp.json()["paths"]
+    results = [
+        {
+            "polyline": [[c[1], c[0]] for c in path["points"]["coordinates"]],
+            "time_sec": int(path["time"] / 1000),
+            "dist_m": int(path["distance"]),
+        }
+        for path in paths
+    ]
+    # 최적 경로 대비 1.4배 초과하는 대안은 제거 (GH가 비정상 경로를 반환하는 경우 방어)
+    if results:
+        best_time = results[0]["time_sec"] or 1
+        results = [r for r in results if r["time_sec"] <= best_time * 1.45]
+    return results if results else [{"polyline": await get_route_geometry(nodes, profile), "time_sec": 0, "dist_m": 0}]

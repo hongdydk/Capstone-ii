@@ -38,10 +38,14 @@ class DemoNode(BaseModel):
     # 주의: OR-Tools 해가 없으면 제약을 완화해서라도 경로를 반환합니다
     time_window: tuple[int, int] | None = None  # (earliest_min, latest_min)
 
-    # 상차→하차 순서 제약: 이 노드(하차지)에서 내릴 화물을 실은 상차지 인덱스 (0-based, nodes 리스트 기준)
-    # 예) 출발지(0)에서 싣고 경유지2(2)에서 내린다 → nodes[2].pickup_from_idx=0
-    #   → 동일 상차지(0)에서 여러 하차지(2,3,4)를 설정할 수 있어 다중 납품 지원
-    pickup_from_idx: int | None = None  # 이 하차지의 상차지 인덱스
+    # 상차→하차 순서 제약: 같은 cargo_id를 가진 pickup 노드가 delivery 노드보다 먼저 방문됨
+    # 1:N (한 곳에서 싣고 여러 곳 하차), N:1 (여러 곳에서 싣고 한 곳 하차),
+    # N:M 모두 지원 — 같은 cargo_id 내 모든 pickup × delivery 조합이 제약으로 등록됨
+    cargo_id: str | None = None            # 화물 묶음 식별자 (예: "A", "화물1")
+    cargo_role: Literal["pickup", "delivery"] | None = None  # 이 지점의 역할
+    # 이 지점에서 상차(양수) 또는 하차(음수) 되는 화물 무게(kg)
+    # 예) 상차지: 500.0, 하차지: -500.0 → 차량 누적 적재량 계산에 사용
+    cargo_weight_kg: float | None = None
 
 
 class DemoRouteRequest(BaseModel):
@@ -479,13 +483,22 @@ async def demo_route(req: DemoRouteRequest, db: AsyncSession = Depends(get_db)):
             for n in req.nodes
         ]
 
-    pickup_pairs = [
-        (n.pickup_from_idx, i)
-        for i, n in enumerate(req.nodes)
-        if n.pickup_from_idx is not None
+    # cargo_id 그룹으로 N:M pickup/delivery 쌍 자동 생성
+    _cargo_pickups: dict[str, list[int]] = {}
+    _cargo_deliveries: dict[str, list[int]] = {}
+    for i, n in enumerate(req.nodes):
+        if n.cargo_id and n.cargo_role == "pickup":
+            _cargo_pickups.setdefault(n.cargo_id, []).append(i)
+        elif n.cargo_id and n.cargo_role == "delivery":
+            _cargo_deliveries.setdefault(n.cargo_id, []).append(i)
+    cargo_pairs = [
+        (pu, dl)
+        for cid in set(_cargo_pickups) & set(_cargo_deliveries)
+        for pu in _cargo_pickups[cid]
+        for dl in _cargo_deliveries[cid]
     ]
-    if pickup_pairs:
-        tsp_pickups = pickup_pairs
+    if cargo_pairs:
+        tsp_pickups = cargo_pairs
 
     dest_idx = len(nodes) - 1
 

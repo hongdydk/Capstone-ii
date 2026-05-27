@@ -76,7 +76,7 @@
 
 ### `trips`
 
-운행 건 1개를 표현합니다. 관리자가 생성하고, 기사가 출발 시 최적 경로가 계산됩니다.
+운행 건 1개를 표현합니다. 관리자가 경유 노드(`waypoints`)를 설정하고, 기사가 출발·도착을 정한 뒤 백엔드가 방문 순서·휴게소를 계산해 `optimized_route`에 저장합니다. (관제 웹: Kakao 지도 API, 기사 앱: Kakao 내비 SDK)
 
 | 컬럼 | 타입 | 제약 | 설명 |
 |---|---|---|---|
@@ -95,7 +95,7 @@
 | `vehicle_length_cm` | FLOAT | | 차량 길이 오버라이드 (cm) |
 | `vehicle_width_cm` | FLOAT | | 차량 폭 오버라이드 (cm) |
 | `departure_time` | VARCHAR(50) | | 출발 예정 시각 ISO-8601 (타임머신 API) |
-| `optimized_route` | JSONB | | 계산된 최적 경로 노드 목록 |
+| `optimized_route` | JSONB | | 계산된 최적 경로 노드 목록. 제품 계약은 `route[]` 순서와 각 노드의 `lat`/`lon` 중심이며, `polyline` 저장 컬럼은 아님 |
 | `status` | tripstatus | NOT NULL DEFAULT 'scheduled' | 운행 상태 |
 | `total_driving_seconds` | INTEGER | NOT NULL DEFAULT 0 | 누적 운전 시간 (초) |
 | `total_rest_seconds` | INTEGER | NOT NULL DEFAULT 0 | 누적 휴식 시간 (초) |
@@ -110,6 +110,8 @@
 
 ---
 ### `dispatch_groups` (차후 구현 예정 — VRP)
+
+> **용어:** 아래 표는 **도메인·DDL 목표**를 기술한다. 실제 `backend/seeds/init_tables.sql`·SQLAlchemy 모델과 컬럼이 다를 수 있으며, VRP 결과 → Trip·`dispatch_orders` 반영 파이프라인은 [PLAN.md](PLAN.md) Phase 1·§8에서 다룬다. `POST /optimize/dispatch` API는 이미 VRPTW **계산·응답**을 제공하며, 응답 계약은 차량별 `route[]` 순서와 `lat`/`lon` 중심이다. `polyline`은 있다면 선택 디버그 필드이며 DB 스키마 컬럼으로 다루지 않는다.
 
 다수 차량 배차 묶음입니다. 관리자가 배차 1건에 여러 기사/차량을 한번에 배정할 때 사용합니다.
 
@@ -128,6 +130,8 @@
 ---
 
 ### `dispatch_orders` (차후 구현 예정 — VRP)
+
+> Phase 1에서 ORM·DDL 정렬 후 VRP 입력/결과 반영용으로 쓴다. 현재 저장소의 `init_tables`·모델 유무와 대조할 것([PLAN.md](PLAN.md) §8).
 
 배차 묶음 내 개별 배송 주문입니다. VRP 최적화 실행 후 `assigned_trip_id` / `visit_order` 가 채워집니다.
 

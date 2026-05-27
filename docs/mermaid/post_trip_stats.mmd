@@ -1,0 +1,67 @@
+flowchart TB
+  subgraph period [기간·시간 축 선택 UI 개념]
+    P0[드롭다운 또는 탭]
+    P1[일별]
+    P2[주별]
+    P3[월별]
+    P4[시간대별 새벽·주간·야간]
+    P5[기사·차량·권역 필터]
+    P0 --> P1
+    P0 --> P2
+    P0 --> P3
+    P0 --> P4
+    P0 --> P5
+  end
+
+  subgraph views [조회 화면]
+    V1[표·숫자 요약]
+    V2[막대·선 차트]
+    V3[타임라인 또는 히트맵]
+  end
+
+  subgraph trip [Trip 상세 관제용]
+    T1[안전 점검 결과 적합 또는 주의]
+    T2[하차·상차 머문 시간]
+  end
+
+  subgraph rollup [전체·기간 요약]
+    R1[완료·진행·취소·미완료 건수]
+    R2[안전 이슈 Trip 건수]
+    R3[낮·밤 운행 비율]
+  end
+
+  subgraph by_driver [기사별 실적 핵심]
+    G1[완료 Trip 건수]
+    G2[운행 시간 합]
+    G3[운행 거리 합]
+    G4[운행 시간 평균]
+    G5[운행 거리 평균]
+    G6[지도 화면 띄우고 과거 운행 경로]
+  end
+
+  subgraph by_vehicle [차량별 실적]
+    V4[완료 Trip 건수]
+    V5[운행 시간·거리 합]
+  end
+
+  subgraph dispatch_result [배차 직후 관제가 보는 것]
+    D1[배정 완료]
+    D2[미배정]
+  end
+
+  subgraph status [운행·Trip 상태]
+    S1[완료]
+    S2[진행 중]
+    S3[취소]
+    S4[미완료]
+  end
+
+  period --> views
+  views --> rollup
+  views --> by_driver
+  views --> by_vehicle
+  dispatch_result --> rollup
+  status --> trip
+  trip --> rollup
+  by_driver --> rollup
+  by_vehicle --> rollup

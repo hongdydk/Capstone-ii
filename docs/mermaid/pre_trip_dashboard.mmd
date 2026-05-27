@@ -1,0 +1,38 @@
+flowchart TB
+  subgraph input [배송 건 입력·목록]
+    A[상차·하차 위치]
+    B[화주·화물·연락처]
+    C[희망 도착 시간]
+  end
+
+  subgraph scope [배차 범위 지정]
+    D[오늘 또는 선택 일]
+    E[권역·센터]
+    F[다차량 배차 그룹]
+  end
+
+  subgraph assign [배정]
+    G[가용 차량·기사 체크]
+    H[배차 실행]
+  end
+
+  subgraph preview [결과 확인]
+    I[차량별 방문 순서]
+    J[지도 노드]
+    K[계획 소요·거리 주행+휴게]
+    L[미배정 건 목록]
+    M[수동 재배정·단건 배차]
+  end
+
+  subgraph handoff [전달 전 확인]
+    N[Trip 생성]
+    O[순서·노드 최종 확인]
+    P[기사 앱 전달]
+  end
+
+  input --> scope
+  scope --> assign
+  assign --> preview
+  preview --> handoff
+  L --> M
+  M --> assign

@@ -12,7 +12,7 @@
 
 > AMD micro (1 GB RAM)은 메모리 부족으로 GraphHopper 실행 불가.
 
-> **GraphHopper 배포 비용 비교:** Oracle Cloud A1 Flex Always Free (4 OCPU · 24 GB RAM) 컴퓨팅 비용은 **월 $0**입니다. 반면 Kakao Mobility API로 TSP 행렬을 채우면 경유지 5개 기준 42번/배차, 하루 100건이면 월 약 126,000건을 소비합니다. 컴퓨팅 비용이 API 호출 비용보다 저렴해 GraphHopper를 클라우드에 배포하는 것이 합리적입니다.
+> **GraphHopper 배포 비용 비교:** Oracle Cloud A1 Flex Always Free (4 OCPU · 24 GB RAM) 컴퓨팅 비용은 **월 $0**입니다. 반면 Kakao Mobility API로 TSP 행렬만 채워도 경유지 5개 기준 다수 호출/배차가 필요하고, 하루 100건 규모면 월 수만~십만 건 대의 API 소비가 될 수 있어, 컴퓨팅 무료 구간에서 GraphHopper를 두는 편이 합리적인 경우가 많습니다.
 
 ---
 

@@ -1,0 +1,47 @@
+flowchart TB
+  subgraph entry [화면 흐름]
+    M[메인 지도]
+    S[통계 화면]
+    M --> S
+  end
+
+  subgraph period [기간·필터]
+    P0[드롭다운 일·주·월]
+    P1[기사·차량·권역]
+  end
+
+  subgraph summary [전체 요약]
+    R1[완료·진행·취소·미완료 건수]
+    R2[배정 완료·미배정 건수]
+    R3[안전 이슈 Trip 건수]
+  end
+
+  subgraph by_driver [기사별 실적]
+    G1[완료 Trip 건수]
+    G2[운행 시간 합·평균]
+    G3[운행 거리 합·평균]
+    G4[운행 일수]
+  end
+
+  subgraph by_vehicle [차량별 실적]
+    V1[완료 Trip 건수]
+    V2[운행 시간·거리 합]
+  end
+
+  subgraph path_map [과거 경로 지도]
+    K1[통계 화면에서 지도 로드]
+    K2[선택 기간·기사 Trip 궤적]
+    K3[location_logs 연결선 표시]
+  end
+
+  subgraph trip_detail [Trip 상세 선택]
+    T1[안전 점검 적합·주의]
+    T2[하차·상차 머문 시간 경영용 선택]
+  end
+
+  entry --> period
+  period --> summary
+  period --> by_driver
+  period --> by_vehicle
+  by_driver --> path_map
+  summary --> trip_detail

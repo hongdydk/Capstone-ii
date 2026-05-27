@@ -32,9 +32,9 @@
   - 요청: `DispatchRequest` (depot 좌표, 차량 목록, 배송지 목록, 프로파일)
   - GraphHopper `build_time_matrix()`로 N×N 시간·거리 행렬 계산
   - `solve_vrptw()`로 차량별 방문 순서 결정
-  - 차량별 `get_route_with_stats()`로 폴리라인·거리·소요시간 산출
-  - `plan_rest_stops_from_polyline()`으로 휴게소 자동 삽입
-  - 반환: `DispatchResponse` (차량별 경로, 미배정 노드 목록)
+  - 차량별 `get_route_with_stats()`로 내부 확인용 폴리라인·거리·소요시간 산출
+  - `plan_rest_stops_from_polyline()`으로 내부 GraphHopper 폴리라인 기반 휴게소 자동 삽입
+  - 반환: `DispatchResponse` (차량별 `route[]` 순서·`lat`/`lon`, 미배정 노드 목록; `polyline`은 선택 디버그 필드)
 
 ---
 
@@ -44,7 +44,7 @@
   - `DispatchNodeInput`: 배송지 이름·좌표·시간창·화물 중량
   - `DispatchVehicleInput`: 차량 이름·최대 적재량
   - `DispatchRequest`: depot, 차량 목록, 배송지 목록, GraphHopper 프로파일, 탐색 제한 시간
-  - `DispatchVehicleRoute`: 차량별 결과 (경로 노드, 폴리라인, 거리, 소요시간, 화물 합계, 휴게소 수)
+  - `DispatchVehicleRoute`: 차량별 결과 (`route[]` 순서·`lat`/`lon`, 선택 디버그용 폴리라인, 거리, 소요시간, 화물 합계, 휴게소 수)
   - `DispatchResponse`: 전체 차량 경로 + 미배정 노드 목록
 
 ---

@@ -1,0 +1,2168 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RouteOn 관제</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #1e3a5f;
+      --primary-dark: #152d4a;
+      --primary-light: #2d5080;
+      --sidebar-w: 220px;
+      --header-h: 56px;
+      --body-bg: #f4f6f9;
+      --panel: #ffffff;
+      --text: #1a1a2e;
+      --text-muted: #5c6478;
+      --border: #dde3ec;
+      --accent: #2563eb;
+      --success: #15803d;
+      --warning: #b45309;
+      --danger: #b91c1c;
+      --shadow: 0 1px 3px rgba(0,0,0,.08);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 14px; }
+    body {
+      font-family: 'Noto Sans KR', system-ui, sans-serif;
+      background: var(--body-bg);
+      color: var(--text);
+      min-height: 100vh;
+      min-width: 1280px;
+    }
+    .app { display: flex; min-height: 100vh; }
+    .sidebar {
+      width: var(--sidebar-w);
+      background: linear-gradient(180deg, var(--primary) 0%, var(--primary-dark) 100%);
+      color: #e8eef8;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .brand {
+      padding: 18px 16px;
+      font-weight: 700;
+      font-size: 16px;
+      border-bottom: 1px solid rgba(255,255,255,.12);
+    }
+    .brand small { display: block; font-size: 11px; font-weight: 400; opacity: .75; margin-top: 4px; }
+    .nav-main { padding: 12px 8px; flex: 1; }
+    .nav-item {
+      display: block;
+      width: 100%;
+      text-align: left;
+      border: none;
+      background: transparent;
+      color: #c5d4e8;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 10px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-bottom: 2px;
+    }
+    .nav-item:hover { background: rgba(255,255,255,.08); color: #fff; }
+    .nav-item.active { background: rgba(255,255,255,.15); color: #fff; }
+    .nav-sub { padding: 4px 8px 12px 20px; display: none; }
+    .nav-sub.open { display: block; }
+    .nav-sub button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      border: none;
+      background: transparent;
+      color: #a8bdd8;
+      font-family: inherit;
+      font-size: 12px;
+      padding: 7px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .nav-sub button:hover, .nav-sub button.active { color: #fff; background: rgba(255,255,255,.1); }
+    .shell { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+    .header {
+      height: var(--header-h);
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      box-shadow: var(--shadow);
+    }
+    .header h1 { font-size: 15px; font-weight: 600; color: var(--primary); }
+    .header-meta { display: flex; align-items: center; gap: 20px; font-size: 13px; color: var(--text-muted); }
+    .header-meta strong { color: var(--text); }
+    .content { flex: 1; padding: 20px 24px; overflow: auto; }
+    .page { display: none; }
+    .page.active { display: block; }
+    .page-title { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+    .page-desc { font-size: 12px; color: var(--text-muted); margin-bottom: 16px; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      margin-bottom: 16px;
+    }
+    .card-hd {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .card-hd h2 { font-size: 14px; font-weight: 600; }
+    .card-bd { padding: 16px; }
+    .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    input, select, textarea {
+      font-family: inherit;
+      font-size: 13px;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #fff;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(37,99,235,.15);
+    }
+    input.invalid { border-color: var(--danger); box-shadow: 0 0 0 2px rgba(185,28,28,.12); }
+    .search { width: 220px; }
+    .btn {
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 8px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: #fff;
+      cursor: pointer;
+      color: var(--text);
+    }
+    .btn:hover { background: #f8fafc; }
+    .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .btn-primary:hover { background: var(--primary-light); }
+    .btn-sm { padding: 5px 10px; font-size: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+    th { background: #f8fafc; font-weight: 600; color: var(--text-muted); font-size: 12px; }
+    tbody tr { cursor: pointer; transition: background .1s; }
+    tbody tr:hover { background: #f0f4fa; }
+    tbody tr.selected { background: #e8f0fe; }
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .badge-ok { background: #dcfce7; color: var(--success); }
+    .badge-warn { background: #fef3c7; color: var(--warning); }
+    .badge-info { background: #dbeafe; color: #1d4ed8; }
+    .badge-muted { background: #f1f5f9; color: var(--text-muted); }
+    .badge-run { background: #e0e7ff; color: #4338ca; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .chip {
+      padding: 6px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: #fff;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .chip.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .pagination {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      padding: 12px;
+      border-top: 1px solid var(--border);
+    }
+    .pagination button {
+      min-width: 32px;
+      height: 32px;
+      border: 1px solid var(--border);
+      background: #fff;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .pagination button.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .pagination span { font-size: 12px; color: var(--text-muted); margin: 0 8px; }
+    .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+    .tab {
+      padding: 10px 16px;
+      border: none;
+      background: none;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+    }
+    .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .form-grid { display: grid; grid-template-columns: 120px 1fr; gap: 12px 16px; max-width: 520px; align-items: center; }
+    .form-grid label { font-size: 13px; color: var(--text-muted); }
+    .split { display: grid; grid-template-columns: 1fr 340px; gap: 16px; }
+    @media (max-width: 1400px) { .split { grid-template-columns: 1fr; } }
+    .map-placeholder {
+      height: 280px;
+      background: linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 50%, #94a3b8 100%);
+      border-radius: 8px;
+      position: relative;
+      overflow: hidden;
+    }
+    .map-placeholder::after {
+      content: '지도 영역 (목업)';
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #475569;
+      font-weight: 600;
+      font-size: 14px;
+    }
+    .map-pin {
+      position: absolute;
+      width: 12px; height: 12px;
+      background: var(--danger);
+      border: 2px solid #fff;
+      border-radius: 50%;
+      box-shadow: 0 2px 4px rgba(0,0,0,.3);
+    }
+    .driver-panel { border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: #f8fafc; }
+    .driver-list { max-height: 320px; overflow-y: auto; }
+    .driver-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-bottom: 4px;
+      border: 1px solid transparent;
+    }
+    .driver-row:hover { background: #fff; }
+    .driver-row.picked { border-color: var(--accent); background: #eff6ff; }
+    .route-box {
+      margin-top: 12px;
+      padding: 12px;
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      border-radius: 8px;
+      display: none;
+    }
+    .route-box.show { display: block; }
+    .route-list { list-style: none; margin: 8px 0; }
+    .route-list li {
+      padding: 6px 0;
+      border-bottom: 1px dashed var(--border);
+      font-size: 13px;
+    }
+    .route-list li:last-child { border-bottom: none; }
+    .route-svg { width: 100%; height: 60px; margin-top: 8px; }
+    .contract-hint {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 8px;
+      cursor: help;
+      text-decoration: underline dotted;
+    }
+    .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px; }
+    .stat-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: var(--shadow);
+    }
+    .stat-card .num { font-size: 28px; font-weight: 700; color: var(--primary); }
+    .stat-card .lbl { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+    .overlay {
+      position: fixed; inset: 0;
+      background: rgba(15,23,42,.45);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      padding: 24px;
+    }
+    .overlay.open { display: flex; }
+    .modal {
+      background: #fff;
+      border-radius: 10px;
+      width: 100%;
+      max-width: 480px;
+      max-height: 90vh;
+      overflow: auto;
+      box-shadow: 0 20px 40px rgba(0,0,0,.2);
+    }
+    .modal-lg { max-width: 560px; }
+    .modal-hd {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .modal-hd h3 { font-size: 16px; }
+    .modal-bd { padding: 20px; }
+    .modal-ft {
+      padding: 12px 20px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+    .modal-close {
+      border: none; background: none;
+      font-size: 22px; cursor: pointer; color: var(--text-muted); line-height: 1;
+    }
+    .drawer-overlay {
+      position: fixed; inset: 0;
+      background: rgba(15,23,42,.35);
+      z-index: 900;
+      display: none;
+    }
+    .drawer-overlay.open { display: block; }
+    .drawer {
+      position: fixed;
+      top: 0; right: 0;
+      width: 400px;
+      max-width: 100%;
+      height: 100%;
+      background: #fff;
+      box-shadow: -4px 0 24px rgba(0,0,0,.15);
+      z-index: 901;
+      transform: translateX(100%);
+      transition: transform .25s ease;
+      display: flex;
+      flex-direction: column;
+    }
+    .drawer.open { transform: translateX(0); }
+    .drawer-hd { padding: 16px 20px; border-bottom: 1px solid var(--border); }
+    .drawer-bd { flex: 1; overflow: auto; padding: 16px 20px; }
+    .drawer-ft { padding: 12px 20px; border-top: 1px solid var(--border); }
+    .toast {
+      position: fixed;
+      bottom: 48px;
+      left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: var(--primary);
+      color: #fff;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      z-index: 2000;
+      opacity: 0;
+      transition: transform .3s, opacity .3s;
+      box-shadow: 0 8px 24px rgba(0,0,0,.2);
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+    .footer {
+      padding: 10px 24px;
+      text-align: center;
+      font-size: 11px;
+      color: var(--text-muted);
+      border-top: 1px solid var(--border);
+      background: #fff;
+    }
+    .loading { display: inline-block; width: 14px; height: 14px; border: 2px solid #fff; border-top-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: middle; margin-right: 6px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .empty-hint { text-align: center; padding: 24px; color: var(--text-muted); font-size: 13px; }
+    .loc-list { list-style: none; }
+    .loc-list li {
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .coord { font-family: ui-monospace, monospace; font-size: 11px; color: var(--text-muted); }
+    .info-banner {
+      background: #fef3c7;
+      border: 1px solid #fcd34d;
+      color: #92400e;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 16px;
+    }
+    .stepper {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+      padding: 12px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .stepper .step {
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      background: #f1f5f9;
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+    .stepper .step.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .stepper .step.done { background: #e8f0fe; color: var(--primary); border-color: #bfdbfe; }
+    .link-cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 20px; max-width: 960px; }
+    .link-card {
+      padding: 16px 18px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--panel);
+      cursor: pointer;
+      transition: box-shadow .15s, border-color .15s;
+    }
+    .link-card:hover { border-color: var(--accent); box-shadow: 0 4px 12px rgba(30,58,95,.12); }
+    .link-card h3 { font-size: 14px; margin-bottom: 4px; color: var(--primary); }
+    .link-card p { font-size: 12px; color: var(--text-muted); }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 1200px) { .two-col { grid-template-columns: 1fr; } }
+    .checklist { list-style: none; }
+    .checklist li {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 8px;
+      background: #fafbfc;
+    }
+    .checklist li.unavail { opacity: .55; background: #f1f5f9; }
+    .checklist label { cursor: pointer; flex: 1; font-size: 13px; }
+    .checklist small { display: block; color: var(--text-muted); font-size: 11px; margin-top: 2px; }
+    .assign-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .assign-col-hd { font-size: 13px; font-weight: 600; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+    .map-marker {
+      position: absolute;
+      width: 22px; height: 22px;
+      background: var(--primary);
+      color: #fff;
+      border: 2px solid #fff;
+      border-radius: 50%;
+      font-size: 11px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 6px rgba(0,0,0,.25);
+      z-index: 1;
+    }
+    .map-placeholder.has-markers::after { content: '지도 · 방문 노드 (목업)'; font-size: 12px; }
+    .preview-meta { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
+    .preview-meta strong { color: var(--text); }
+    .handoff-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 16px;
+      background: #f0f9ff;
+      border: 1px solid #bae6fd;
+      border-radius: 8px;
+      margin-top: 8px;
+    }
+    .section-anchor { scroll-margin-top: 12px; }
+    .stat-grid-6 { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 16px; }
+    @media (max-width: 1400px) { .stat-grid-6 { grid-template-columns: repeat(3, 1fr); } }
+    .stat-card.compact { padding: 12px 14px; }
+    .stat-card.compact .num { font-size: 22px; }
+    .filter-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 16px; }
+    .filter-bar label { font-size: 12px; color: var(--text-muted); margin-right: 4px; }
+    .trip-row { cursor: pointer; }
+    details.dev-collapse {
+      margin-top: 20px;
+      border: 1px dashed #cbd5e1;
+      border-radius: 8px;
+      padding: 0 12px;
+      background: #f8fafc;
+    }
+    details.dev-collapse summary {
+      padding: 10px 4px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+    details.dev-collapse .dev-hidden {
+      padding: 0 4px 12px;
+      font-size: 12px;
+      color: #94a3b8;
+      line-height: 1.6;
+    }
+    .sec-label {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--primary);
+      background: #e8f0fe;
+      padding: 2px 8px;
+      border-radius: 4px;
+      margin-bottom: 8px;
+    }
+    .visit-ol { margin: 0; padding-left: 20px; font-size: 13px; }
+    .visit-ol li { padding: 4px 0; }
+    .dispatch-mode-nav {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+      padding: 4px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      max-width: 720px;
+    }
+    .dispatch-mode-nav button {
+      flex: 1;
+      min-width: 140px;
+      padding: 12px 14px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      background: transparent;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: left;
+      color: var(--text-muted);
+    }
+    .dispatch-mode-nav button:hover { background: #f8fafc; color: var(--text); }
+    .dispatch-mode-nav button.active {
+      background: #e8f0fe;
+      border-color: #bfdbfe;
+      color: var(--primary);
+    }
+    .dispatch-mode-nav button strong { display: block; font-size: 13px; margin-bottom: 2px; }
+    .dispatch-mode-nav button span { font-size: 11px; font-weight: 400; opacity: .85; }
+    .dispatch-mode-nav button.prominent.active {
+      background: linear-gradient(135deg, #1e3a5f 0%, #2d5080 100%);
+      color: #fff;
+      border-color: var(--primary);
+    }
+    .dispatch-mode-nav button.prominent.active span { color: #dbeafe; }
+    .badge-incomplete { background: #fce7f3; color: #9d174d; }
+    .badge-beta { background: #ede9fe; color: #5b21b6; }
+    .banner-api {
+      background: #eff6ff;
+      border: 1px solid #93c5fd;
+      color: #1e40af;
+      padding: 12px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      line-height: 1.55;
+      margin-bottom: 16px;
+    }
+    .banner-api strong { display: block; margin-bottom: 4px; font-size: 13px; }
+    .status-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+    .csv-area {
+      width: 100%;
+      min-height: 80px;
+      font-family: ui-monospace, monospace;
+      font-size: 11px;
+      resize: vertical;
+    }
+    .chip.disabled {
+      opacity: .45;
+      cursor: not-allowed;
+      text-decoration: line-through;
+    }
+    .departure-mode {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .departure-mode button {
+      flex: 1;
+      min-width: 220px;
+      text-align: left;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      cursor: pointer;
+      font-size: 12px;
+      line-height: 1.45;
+      color: var(--text-muted);
+    }
+    .departure-mode button strong { display: block; font-size: 13px; color: var(--text); margin-bottom: 2px; }
+    .departure-mode button.active {
+      border-color: var(--primary);
+      background: #eff6ff;
+      box-shadow: 0 0 0 1px var(--primary);
+    }
+    .departure-mode button.active strong { color: var(--primary); }
+    #bulkDepotBlock.is-hidden { display: none; }
+    .checklist .fleet-meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+      margin-top: 4px;
+    }
+    .checklist .fleet-meta .coord { font-size: 10px; }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+    .bulk-summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      padding: 12px 14px;
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      font-size: 13px;
+    }
+    .bulk-summary span strong { font-size: 18px; color: var(--primary); margin-right: 4px; }
+    .visit-ol li.rest { color: var(--warning); font-style: italic; }
+    .visit-ol li.origin, .visit-ol li.end { color: var(--text-muted); }
+    .map-placeholder.bulk-map { height: 300px; }
+    .map-placeholder.bulk-map::after { content: '차량별 방문 순서 · 색상 마커 (폴리라인 미계약)'; font-size: 11px; }
+    .map-placeholder.bulk-map svg.routes {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+    .map-marker.v1 { background: #2563eb; }
+    .map-marker.v2 { background: #15803d; }
+    .map-marker.v3 { background: #b45309; }
+    .json-pre {
+      font-family: ui-monospace, monospace;
+      font-size: 11px;
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 12px;
+      border-radius: 6px;
+      overflow: auto;
+      max-height: 320px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .stat-card.beta-highlight {
+      border-color: #c4b5fd;
+      background: linear-gradient(180deg, #faf5ff 0%, #fff 100%);
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">RouteOn <small>물류 관제</small></div>
+      <nav class="nav-main" id="navMain"></nav>
+    </aside>
+    <div class="shell">
+      <header class="header">
+        <h1>RouteOn 관제</h1>
+        <div class="header-meta">
+          <span>오늘 <strong id="headerDate"></strong></span>
+          <span>로그인 <strong>관리자</strong></span>
+        </div>
+      </header>
+      <main class="content" id="mainContent"></main>
+      <footer class="footer">목업 · API 미연동 · 정산·예치금·마일리지 기능 없음</footer>
+    </div>
+  </div>
+
+  <div class="overlay" id="modalOverlay" aria-hidden="true">
+    <div class="modal" id="modalBox" role="dialog"></div>
+  </div>
+  <div class="drawer-overlay" id="drawerOverlay"></div>
+  <aside class="drawer" id="drawer">
+    <div class="drawer-hd">
+      <h3 id="drawerTitle">상세</h3>
+      <button type="button" class="modal-close" id="drawerClose" aria-label="닫기">&times;</button>
+    </div>
+    <div class="drawer-bd" id="drawerBody"></div>
+    <div class="drawer-ft">
+      <button type="button" class="btn btn-primary" id="drawerSave">저장</button>
+    </div>
+  </aside>
+  <div class="toast" id="toast">저장되었습니다</div>
+
+  <script>
+(function () {
+  'use strict';
+
+  const DATA = {
+    drivers: [
+      { id: 1, name: '김철수', vehicle: '1톤 · 12가3456', status: '운행가능', phone: '010-1111-2222', history: [{ at: '2026-05-28', note: '상태 → 운행가능' }, { at: '2026-05-20', note: '등록' }] },
+      { id: 2, name: '이영희', vehicle: '2.5톤 · 34나5678', status: '운행중', phone: '010-3333-4444', history: [{ at: '2026-06-01', note: '상태 → 운행중' }] },
+      { id: 3, name: '박민수', vehicle: '1톤 · 56다7890', status: '휴무', phone: '010-5555-6666', history: [] },
+      { id: 4, name: '최지원', vehicle: '3.5톤 · 78라1234', status: '운행가능', phone: '010-7777-8888', history: [] },
+    ],
+    staff: [
+      { id: 1, name: '홍담당', role: '배차', email: 'dispatch@example.com', phone: '02-123-4567' },
+      { id: 2, name: '윤접수', role: '접수', email: 'order@example.com', phone: '02-123-4568' },
+    ],
+    shipper: { email: 'shipper@routeon.mock', company: '(주)테스트물류', },
+    customers: [
+      { id: 1, name: 'ABC마트', contact: '김고객', phone: '02-100-2000', address: '서울 강남구' },
+      { id: 2, name: 'XYZ식자재', contact: '이매니저', phone: '031-300-4000', address: '경기 성남시' },
+      { id: 3, name: '한빛전자', contact: '박대리', phone: '032-500-6000', address: '인천 남동구' },
+    ],
+    locations: [
+      { id: 1, customerId: 1, label: 'ABC 강남점', lat: 37.4979, lon: 127.0276 },
+      { id: 2, customerId: 1, label: 'ABC 물류센터', lat: 37.4563, lon: 127.1348 },
+      { id: 3, customerId: 2, label: 'XYZ 본사', lat: 37.3947, lon: 127.1112 },
+    ],
+    orders: [
+      { id: 'O-260601-001', customer: 'ABC마트', status: '접수', pickup: '인천 부평', delivery: '서울 강남', window: '09:00–12:00', driver: null },
+      { id: 'O-260601-002', customer: 'XYZ식자재', status: '배차', pickup: '성남 분당', delivery: '수원 영통', window: '14:00–17:00', driver: '김철수' },
+      { id: 'O-260601-003', customer: '한빛전자', status: '운행중', pickup: '인천 남동', delivery: '안양 동안', window: '—', driver: '이영희' },
+      { id: 'O-260531-088', customer: 'ABC마트', status: '완료', pickup: '김포', delivery: '강남', window: '—', driver: '박민수' },
+    ],
+    routePreview: [
+      { seq: 1, name: '출발(차고지)', lat: 37.456, lon: 126.705 },
+      { seq: 2, name: '상차 · 인천 부평', lat: 37.489, lon: 126.724, role: 'pickup' },
+      { seq: 3, name: '하차 · 서울 강남', lat: 37.498, lon: 127.028, role: 'delivery' },
+    ],
+    dispatchOrders: [
+      { id: 'D-260601-01', pickup: '인천 부평', delivery: '서울 강남', shipper: '(주)테스트물류', cargo: '냉동 20박스', contact: '010-1234-5678', latestAt: '2026-06-01 12:00' },
+      { id: 'D-260601-02', pickup: '성남 분당', delivery: '수원 영통', shipper: 'XYZ식자재', cargo: '건조 8팔레트', contact: '031-300-4000', latestAt: '2026-06-01 17:00' },
+      { id: 'D-260601-03', pickup: '김포 공항', delivery: '안양 동안', shipper: '한빛전자', cargo: '전자부품 소형', contact: '032-500-6000', latestAt: '2026-06-01 15:30' },
+      { id: 'D-260601-04', pickup: '파주 탄현', delivery: '일산 서구', shipper: 'ABC마트', cargo: '상온 혼합', contact: '02-100-2000', latestAt: '2026-06-01 11:00' },
+    ],
+    dispatchFleet: [
+      { id: 1, vehicle: '1톤 · 12가3456', driver: '김철수', available: true },
+      { id: 2, vehicle: '2.5톤 · 34나5678', driver: '이영희', available: false, note: '운행 중' },
+      { id: 4, vehicle: '3.5톤 · 78라1234', driver: '최지원', available: true },
+    ],
+    dispatchPlans: [
+      {
+        vehicle: '12가3456',
+        driver: '김철수',
+        visits: ['① 차고지 출발', '② 상차 · 인천 부평', '③ 하차 · 서울 강남', '④ 상차 · 파주 탄현', '⑤ 하차 · 일산 서구'],
+        duration: '3시간 20분',
+        distance: '87 km',
+        note: '계획 소요 · 주행+법정휴게 (체류 제외)',
+      },
+      {
+        vehicle: '78라1234',
+        driver: '최지원',
+        visits: ['① 차고지 출발', '② 상차 · 성남 분당', '③ 하차 · 수원 영통'],
+        duration: '1시간 45분',
+        distance: '42 km',
+        note: '계획 소요 · 주행+법정휴게',
+      },
+    ],
+    dispatchAssigned: [
+      { id: 'D-260601-01', label: '인천 부평 → 강남', vehicle: '12가3456' },
+      { id: 'D-260601-04', label: '파주 → 일산', vehicle: '12가3456' },
+      { id: 'D-260601-02', label: '분당 → 영통', vehicle: '78라1234' },
+    ],
+    dispatchUnassigned: [
+      { id: 'D-260601-03', label: '김포 → 안양', reason: '가용 차량 부족' },
+    ],
+    statsSummary: {
+      completed: 24, inProgress: 8, cancelled: 2, incomplete: 3,
+      assignedOk: 31, assignedPending: 5, safetyIssues: 2,
+    },
+    driverStats: [
+      { name: '김철수', trips: 12, hoursSum: '38h 20m', hoursAvg: '3h 12m', distSum: '412 km', distAvg: '34 km', days: 8 },
+      { name: '이영희', trips: 9, hoursSum: '29h 05m', hoursAvg: '3h 14m', distSum: '298 km', distAvg: '33 km', days: 7 },
+      { name: '박민수', trips: 6, hoursSum: '18h 40m', hoursAvg: '3h 07m', distSum: '201 km', distAvg: '34 km', days: 5 },
+      { name: '최지원', trips: 10, hoursSum: '32h 15m', hoursAvg: '3h 14m', distSum: '355 km', distAvg: '36 km', days: 6 },
+    ],
+    vehicleStats: [
+      { plate: '12가3456', driver: '김철수', trips: 12, hoursSum: '38h 20m', distSum: '412 km' },
+      { plate: '34나5678', driver: '이영희', trips: 9, hoursSum: '29h 05m', distSum: '298 km' },
+      { plate: '56다7890', driver: '박민수', trips: 6, hoursSum: '18h 40m', distSum: '201 km' },
+      { plate: '78라1234', driver: '최지원', trips: 10, hoursSum: '32h 15m', distSum: '355 km' },
+    ],
+    bulkDispatch: {
+      depot: { name: '본사 물류센터', lat: 37.4563, lon: 126.7052 },
+      stopsPaste: '이름,lat,lon,화물kg,tw_close,cargo_id\nABC 강남,37.4979,127.0276,120,2026-06-01T12:00,C-01\n일산 마트,37.6688,126.7694,85,2026-06-01T11:30,C-02\n분당 센터,37.3947,127.1112,200,2026-06-01T17:00,C-03',
+      vehicles: [
+        { id: 1, label: '1호', plate: '12가3456', max_load_kg: 1000, driver: '김철수', available: true,
+          start_city: '대전', start_lat: 36.3504, start_lon: 127.3845, end_policy: 'open_end' },
+        { id: 4, label: '2호', plate: '78라1234', max_load_kg: 3500, driver: '최지원', available: true,
+          start_city: '수원', start_lat: 37.2636, start_lon: 127.0286, end_policy: 'open_end' },
+        { id: 2, label: '3호', plate: '34나5678', max_load_kg: 2500, driver: '이영희', available: true,
+          start_city: '인천', start_lat: 37.4563, start_lon: 126.7052, end_policy: 'return_to_depot' },
+      ],
+      results: {
+        summary: { vehicles: 3, stops: 12, unassigned: 2 },
+        plans: [
+          {
+            label: '1호',
+            plate: '12가3456',
+            driver: '김철수',
+            distance: '94 km',
+            duration: '4h 10m',
+            color: '#2563eb',
+            visits: [
+              { kind: 'origin', text: '① 기사 현재위치 (대전)' },
+              { kind: 'stop', text: '② 하차 · ABC 강남 (120kg · C-01)' },
+              { kind: 'stop', text: '③ 하차 · 일산 마트 (85kg · C-02)' },
+              { kind: 'rest', text: '④ 법정 휴게 · 서울만남의광장' },
+              { kind: 'stop', text: '⑤ 하차 · 파주 탄현 (60kg · C-04)' },
+              { kind: 'end', text: '⑥ 종료 · 일산 거점' },
+            ],
+          },
+          {
+            label: '2호',
+            plate: '78라1234',
+            driver: '최지원',
+            distance: '68 km',
+            duration: '3h 05m',
+            color: '#15803d',
+            visits: [
+              { kind: 'origin', text: '① 기사 현재위치 (수원)' },
+              { kind: 'stop', text: '② 상차·하차 · 분당 → 수원 영통 (200kg · C-03)' },
+              { kind: 'rest', text: '③ 법정 휴게 · 기흥휴게소' },
+              { kind: 'stop', text: '④ 하차 · 용인 기흥 (140kg · C-05)' },
+              { kind: 'end', text: '⑤ 종료 · 성남 거점' },
+            ],
+          },
+          {
+            label: '3호',
+            plate: '34나5678',
+            driver: '이영희',
+            distance: '52 km',
+            duration: '2h 40m',
+            color: '#b45309',
+            visits: [
+              { kind: 'origin', text: '① 기사 현재위치 (인천)' },
+              { kind: 'stop', text: '② 하차 · 인천 부평 (90kg · C-06)' },
+              { kind: 'stop', text: '③ 하차 · 김포 공항물류 (55kg · C-07)' },
+              { kind: 'end', text: '④ 종료 · 인천 허브' },
+            ],
+          },
+        ],
+        unassigned: [
+          { name: '한빛전자 · 안양 동안', cargo_id: 'C-08', kg: 450, tw: '15:30', reason: '적재 초과' },
+          { name: 'XYZ식자재 · 수원 광교', cargo_id: 'C-11', kg: 80, tw: '11:00', reason: '시간창' },
+        ],
+      },
+    },
+    statsTrips: [
+      { id: 'T-0601-12', driver: '김철수', date: '2026-06-01', status: '완료', safety: '적합', dwellPickup: '18분', dwellDelivery: '22분' },
+      { id: 'T-0601-08', driver: '이영희', date: '2026-06-01', status: '진행', safety: '적합', dwellPickup: '—', dwellDelivery: '—' },
+      { id: 'T-0531-44', driver: '박민수', date: '2026-05-31', status: '완료', safety: '주의', dwellPickup: '35분', dwellDelivery: '28분' },
+      { id: 'T-0530-02', driver: '최지원', date: '2026-05-30', status: '취소', safety: '—', dwellPickup: '—', dwellDelivery: '—' },
+    ],
+  };
+
+  const NAV = [
+    { id: 'dashboard', label: '대시보드', pages: [{ id: 'dashboard', label: '요약' }] },
+    { id: 'dispatch', label: '배차·지정', pages: [
+      { id: 'bulk-dispatch', label: '일괄 자동 배차' },
+      { id: 'dispatch-assign', label: '단건·수동 배차' },
+    ]},
+    { id: 'stats', label: '운행 통계', pages: [{ id: 'trip-stats', label: '사후 통계' }] },
+    { id: 'basic', label: '기본정보', pages: [
+      { id: 'drivers', label: '자기사 관리' },
+      { id: 'staff', label: '담당자 관리' },
+      { id: 'profile', label: '내 정보' },
+    ]},
+    { id: 'customers', label: '고객관리', pages: [
+      { id: 'customer-list', label: '고객 관리' },
+      { id: 'customer-loc', label: '고객 위치관리' },
+    ]},
+    { id: 'orders', label: '오더관리', pages: [
+      { id: 'order-intake', label: '접수 창' },
+      { id: 'order-list', label: '오더 목록' },
+    ]},
+  ];
+
+  let currentPage = 'dashboard';
+  let currentMain = 'dashboard';
+  let selectedDriverId = null;
+  let orderFilter = '전체';
+  let fakePage = 1;
+  let statsPeriod = '주';
+  let dispatchPreviewTab = 0;
+  let dispatchRan = false;
+  let bulkDispatchRan = false;
+  let bulkDispatchTab = 0;
+  let bulkDepartureMode = 'distributed';
+
+  function gotoPage(main, page) {
+    currentMain = main;
+    currentPage = page;
+    renderNav();
+    renderPage();
+  }
+
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const el = (tag, cls, html) => {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (html != null) n.innerHTML = html;
+    return n;
+  };
+
+  function statusBadge(s) {
+    const map = { '운행가능': 'badge-ok', '운행중': 'badge-run', '휴무': 'badge-muted', '접수': 'badge-muted', '배차': 'badge-info', '완료': 'badge-ok', '진행': 'badge-run', '취소': 'badge-muted' };
+    return `<span class="badge ${map[s] || 'badge-muted'}">${s}</span>`;
+  }
+
+  function toast(msg) {
+    const t = $('#toast');
+    t.textContent = msg || '저장되었습니다';
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  function openModal(title, bodyHtml, onSave) {
+    const box = $('#modalBox');
+    box.className = 'modal';
+    box.innerHTML = `
+      <div class="modal-hd"><h3>${title}</h3><button type="button" class="modal-close" data-close>&times;</button></div>
+      <div class="modal-bd">${bodyHtml}</div>
+      <div class="modal-ft">
+        <button type="button" class="btn" data-close>취소</button>
+        <button type="button" class="btn btn-primary" id="modalSave">저장</button>
+      </div>`;
+    $('#modalOverlay').classList.add('open');
+    box.querySelectorAll('[data-close]').forEach(b => b.onclick = closeModal);
+    $('#modalSave').onclick = () => {
+      const form = box.querySelector('form');
+      if (form && !validateForm(form)) return;
+      closeModal();
+      if (onSave) onSave();
+      else toast();
+    };
+  }
+
+  function openModalLarge(title, bodyHtml, onSave) {
+    openModal(title, bodyHtml, onSave);
+    $('#modalBox').classList.add('modal-lg');
+  }
+
+  function closeModal() {
+    $('#modalOverlay').classList.remove('open');
+  }
+
+  function validateForm(form) {
+    let ok = true;
+    form.querySelectorAll('[required]').forEach(inp => {
+      const invalid = !inp.value.trim();
+      inp.classList.toggle('invalid', invalid);
+      if (invalid) ok = false;
+    });
+    return ok;
+  }
+
+  function openDrawer(title, bodyHtml, onSave) {
+    $('#drawerTitle').textContent = title;
+    $('#drawerBody').innerHTML = bodyHtml;
+    $('#drawer').classList.add('open');
+    $('#drawerOverlay').classList.add('open');
+    $('#drawerSave').onclick = () => { if (onSave) onSave(); else toast(); };
+  }
+
+  function closeDrawer() {
+    $('#drawer').classList.remove('open');
+    $('#drawerOverlay').classList.remove('open');
+    $('#drawerSave').textContent = '저장';
+  }
+
+  function paginationHtml(totalPages) {
+    let btns = '';
+    for (let i = 1; i <= totalPages; i++) {
+      btns += `<button type="button" data-page="${i}" class="${i === fakePage ? 'active' : ''}">${i}</button>`;
+    }
+    return `<div class="pagination">${btns}<span>${fakePage} / ${totalPages} 페이지 (목업)</span></div>`;
+  }
+
+  function bindPagination(container) {
+    container.querySelectorAll('.pagination button[data-page]').forEach(btn => {
+      btn.onclick = () => {
+        fakePage = Number(btn.dataset.page);
+        renderPage();
+        toast('페이지를 변경했습니다 (목업)');
+      };
+    });
+  }
+
+  function renderNav() {
+    const nav = $('#navMain');
+    nav.innerHTML = '';
+    NAV.forEach(group => {
+      const btn = el('button', 'nav-item' + (currentMain === group.id ? ' active' : ''), group.label);
+      btn.type = 'button';
+      btn.dataset.main = group.id;
+      btn.onclick = () => {
+        currentMain = group.id;
+        currentPage = group.pages[0].id;
+        renderNav();
+        renderPage();
+      };
+      nav.appendChild(btn);
+      const sub = el('div', 'nav-sub' + (currentMain === group.id ? ' open' : ''));
+      group.pages.forEach(p => {
+        const sb = el('button', '', p.label);
+        if (currentPage === p.id) sb.classList.add('active');
+        sb.type = 'button';
+        sb.onclick = (e) => { e.stopPropagation(); currentMain = group.id; currentPage = p.id; renderNav(); renderPage(); };
+        sub.appendChild(sb);
+      });
+      nav.appendChild(sub);
+    });
+  }
+
+  function renderPage() {
+    const main = $('#mainContent');
+    main.innerHTML = '';
+    const page = el('section', 'page active');
+    main.appendChild(page);
+
+    switch (currentPage) {
+      case 'dashboard': renderDashboard(page); break;
+      case 'bulk-dispatch': renderBulkDispatch(page); break;
+      case 'dispatch-assign': renderDispatchAssign(page); break;
+      case 'trip-stats': renderTripStats(page); break;
+      case 'drivers': renderDrivers(page); break;
+      case 'staff': renderStaff(page); break;
+      case 'profile': renderProfile(page); break;
+      case 'customer-list': renderCustomers(page); break;
+      case 'customer-loc': renderCustomerLoc(page); break;
+      case 'order-intake': renderOrderIntake(page); break;
+      case 'order-list': renderOrderList(page); break;
+    }
+  }
+
+  function renderDashboard(root) {
+    root.innerHTML = `
+      <h2 class="page-title">대시보드</h2>
+      <p class="page-desc">오늘 운행·접수 현황 요약 (가짜 데이터)</p>
+      <div class="link-cards">
+        <div class="link-card" data-goto-main="dispatch" data-goto-page="bulk-dispatch">
+          <h3>일괄 자동 배차 <span class="badge badge-beta">베타</span></h3>
+          <p>다차량 VRPTW · 방문 순서·휴게 계산 (API) — DB·앱 전달은 Phase 1 예정</p>
+        </div>
+        <div class="link-card" data-goto-main="dispatch" data-goto-page="dispatch-assign">
+          <h3>단건·수동 배차</h3>
+          <p>배송 건 선택 → 가용 차량·기사 배정 → 결과 미리보기 → Trip 전달</p>
+        </div>
+        <div class="link-card" data-goto-main="orders" data-goto-page="order-intake">
+          <h3>단건 접수</h3>
+          <p>신규 배송 건 접수 · 경로 미리보기</p>
+        </div>
+        <div class="link-card" data-goto-main="stats" data-goto-page="trip-stats">
+          <h3>운행 통계</h3>
+          <p>완료·진행 Trip, 기사·차량 실적, 안전 이슈 (계획 vs 실제 미노출)</p>
+        </div>
+      </div>
+      <div class="stat-grid">
+        <div class="stat-card beta-highlight">
+          <div class="num">3</div>
+          <div class="lbl">일괄 자동 배차 (베타) · 오늘 실행</div>
+        </div>
+        <div class="stat-card"><div class="num">12</div><div class="lbl">오늘 접수</div></div>
+        <div class="stat-card"><div class="num">5</div><div class="lbl">배차 대기</div></div>
+        <div class="stat-card"><div class="num">8</div><div class="lbl">운행 중</div></div>
+      </div>
+      <div class="stat-grid" style="margin-top:-8px">
+        <div class="stat-card"><div class="num">24</div><div class="lbl">금일 완료</div></div>
+      </div>
+      <div class="card">
+        <div class="card-hd"><h2>최근 오더</h2></div>
+        <div class="card-bd" style="padding:0">
+          <table>
+            <thead><tr><th>오더번호</th><th>고객</th><th>상태</th><th>담당기사</th></tr></thead>
+            <tbody>${DATA.orders.slice(0, 3).map(o => `
+              <tr data-goto="order-list"><td>${o.id}</td><td>${o.customer}</td><td>${statusBadge(o.status)}</td><td>${o.driver || '—'}</td></tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+    root.querySelectorAll('[data-goto]').forEach(tr => {
+      tr.onclick = () => { gotoPage('orders', tr.dataset.goto); };
+    });
+    root.querySelectorAll('.link-card[data-goto-main]').forEach(card => {
+      card.onclick = () => gotoPage(card.dataset.gotoMain, card.dataset.gotoPage);
+    });
+  }
+
+  function renderDrivers(root) {
+    const q = root._search || '';
+    const rows = DATA.drivers.filter(d =>
+      !q || d.name.includes(q) || d.vehicle.includes(q) || d.phone.includes(q)
+    );
+    root.innerHTML = `
+      <h2 class="page-title">자기사 관리</h2>
+      <p class="page-desc">등록 기사 조회·상태 관리</p>
+      <div class="card">
+        <div class="card-hd">
+          <h2>기사 목록</h2>
+          <div class="toolbar">
+            <input type="search" class="search" placeholder="이름·차량·연락처 검색" id="driverSearch" value="${q}">
+            <button type="button" class="btn btn-primary" id="addDriver">+ 추가</button>
+          </div>
+        </div>
+        <div class="card-bd" style="padding:0">
+          <table id="driverTable">
+            <thead><tr><th>이름</th><th>차량</th><th>상태</th><th>연락처</th></tr></thead>
+            <tbody>${rows.map(d => `
+              <tr data-id="${d.id}"><td>${d.name}</td><td>${d.vehicle}</td><td>${statusBadge(d.status)}</td><td>${d.phone}</td></tr>`).join('')}
+            </tbody>
+          </table>
+          ${paginationHtml(3)}
+        </div>
+      </div>`;
+
+    $('#driverSearch', root).oninput = (e) => { root._search = e.target.value; renderDrivers(root); };
+    $('#addDriver', root).onclick = () => {
+      openModal('기사 추가', `
+        <form id="driverForm">
+          <div class="form-grid" style="max-width:100%">
+            <label>이름 *</label><input name="name" required>
+            <label>차량 *</label><input name="vehicle" required placeholder="톤수 · 번호">
+            <label>연락처 *</label><input name="phone" required>
+            <label>상태</label>
+            <select name="status"><option>운행가능</option><option>휴무</option></select>
+          </div>
+        </form>`, () => toast('기사가 등록되었습니다 (목업)'));
+    };
+
+    const tbody = $('#driverTable tbody', root);
+    tbody.querySelectorAll('tr').forEach(tr => {
+      tr.onclick = () => {
+        tbody.querySelectorAll('tr').forEach(r => r.classList.remove('selected'));
+        tr.classList.add('selected');
+        const d = DATA.drivers.find(x => x.id === Number(tr.dataset.id));
+        openDriverDrawer(d);
+      };
+    });
+    bindPagination(root);
+  }
+
+  function openDriverDrawer(d) {
+    const hist = d.history.length
+      ? d.history.map(h => `<li>${h.at} — ${h.note}</li>`).join('')
+      : '<li class="empty-hint">이력 없음</li>';
+    openDrawer(d.name, `
+      <div class="tabs" id="drawerTabs">
+        <button type="button" class="tab active" data-tab="info">기본</button>
+        <button type="button" class="tab" data-tab="hist">변경 이력</button>
+      </div>
+      <div class="tab-panel active" data-panel="info">
+        <div class="form-grid" style="max-width:100%">
+          <label>차량</label><span>${d.vehicle}</span>
+          <label>연락처</label><span>${d.phone}</span>
+          <label>상태</label>
+          <select id="driverStatus">
+            <option ${d.status === '운행가능' ? 'selected' : ''}>운행가능</option>
+            <option ${d.status === '운행중' ? 'selected' : ''}>운행중</option>
+            <option ${d.status === '휴무' ? 'selected' : ''}>휴무</option>
+          </select>
+        </div>
+      </div>
+      <div class="tab-panel" data-panel="hist"><ul class="route-list">${hist}</ul></div>
+    `, () => {
+      d.status = $('#driverStatus').value;
+      toast('기사 정보가 저장되었습니다');
+      closeDrawer();
+      renderPage();
+    });
+    $('#drawerBody').querySelectorAll('#drawerTabs .tab').forEach(tab => {
+      tab.onclick = () => {
+        $('#drawerBody').querySelectorAll('#drawerTabs .tab').forEach(t => t.classList.remove('active'));
+        $('#drawerBody').querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        $(`[data-panel="${tab.dataset.tab}"]`, $('#drawerBody')).classList.add('active');
+      };
+    });
+  }
+
+  function renderStaff(root) {
+    root.innerHTML = `
+      <h2 class="page-title">담당자 관리</h2>
+      <p class="page-desc">접수·배차 담당자</p>
+      <div class="card">
+        <div class="card-hd">
+          <h2>담당자</h2>
+          <button type="button" class="btn btn-primary" id="addStaff">+ 추가</button>
+        </div>
+        <div class="card-bd" style="padding:0">
+          <table>
+            <thead><tr><th>이름</th><th>역할</th><th>이메일</th><th>연락처</th></tr></thead>
+            <tbody>${DATA.staff.map(s => `
+              <tr><td>${s.name}</td><td>${s.role}</td><td>${s.email}</td><td>${s.phone}</td></tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+    $('#addStaff', root).onclick = () => {
+      openModal('담당자 추가', `
+        <form>
+          <div class="form-grid" style="max-width:100%">
+            <label>이름 *</label><input required>
+            <label>역할 *</label><select required><option>접수</option><option>배차</option></select>
+            <label>이메일</label><input type="email">
+            <label>연락처</label><input>
+          </div>
+        </form>`);
+    };
+  }
+
+  function renderProfile(root) {
+    const s = DATA.shipper;
+    root.innerHTML = `
+      <h2 class="page-title">내 정보</h2>
+      <p class="page-desc">화주 기본정보 (요금·출금 메뉴 없음)</p>
+      <div class="card">
+        <div class="card-bd">
+          <div class="tabs" id="profileTabs">
+            <button type="button" class="tab active" data-tab="shipper">화주 기본정보</button>
+            <button type="button" class="tab" data-tab="pw">비밀번호 변경</button>
+          </div>
+          <div class="tab-panel active" data-panel="shipper">
+            <form id="shipperForm" class="form-grid">
+              <label>이메일</label><input type="email" value="${s.email}" required>
+              <label>사업자명</label><input value="${s.company}" required>
+            </form>
+            <p style="margin-top:12px;font-size:12px;color:var(--text-muted)">예치금·가상계좌·요금 정책은 이 목업에 포함하지 않습니다.</p>
+          </div>
+          <div class="tab-panel" data-panel="pw">
+            <form id="pwForm" class="form-grid">
+              <label>현재 비밀번호</label><input type="password" required>
+              <label>새 비밀번호</label><input type="password" required>
+              <label>확인</label><input type="password" required>
+            </form>
+          </div>
+          <div style="margin-top:16px">
+            <button type="button" class="btn btn-primary" id="saveProfile">저장</button>
+          </div>
+        </div>
+      </div>`;
+    root.querySelectorAll('#profileTabs .tab').forEach(tab => {
+      tab.onclick = () => {
+        root.querySelectorAll('#profileTabs .tab').forEach(t => t.classList.remove('active'));
+        root.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        root.querySelector(`[data-panel="${tab.dataset.tab}"]`).classList.add('active');
+      };
+    });
+    $('#saveProfile', root).onclick = () => {
+      const active = root.querySelector('.tab-panel.active form');
+      if (active && !validateForm(active)) return;
+      toast();
+    };
+  }
+
+  function renderCustomers(root) {
+    const q = root._search || '';
+    const rows = DATA.customers.filter(c =>
+      !q || c.name.includes(q) || c.contact.includes(q)
+    );
+    root.innerHTML = `
+      <h2 class="page-title">고객 관리</h2>
+      <p class="page-desc">거래처 마스터</p>
+      <div class="card">
+        <div class="card-hd">
+          <h2>고객 목록</h2>
+          <div class="toolbar">
+            <input type="search" class="search" id="custSearch" placeholder="고객명·담당자" value="${q}">
+            <button type="button" class="btn btn-primary" id="addCust">+ 추가</button>
+          </div>
+        </div>
+        <div class="card-bd" style="padding:0">
+          <table>
+            <thead><tr><th>고객명</th><th>담당자</th><th>연락처</th><th>주소</th><th></th></tr></thead>
+            <tbody>${rows.map(c => `
+              <tr data-id="${c.id}">
+                <td>${c.name}</td><td>${c.contact}</td><td>${c.phone}</td><td>${c.address}</td>
+                <td><button type="button" class="btn btn-sm edit-cust">수정</button></td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+          ${paginationHtml(2)}
+        </div>
+      </div>`;
+    $('#custSearch', root).oninput = (e) => { root._search = e.target.value; renderCustomers(root); };
+    $('#addCust', root).onclick = () => customerModal();
+    root.querySelectorAll('.edit-cust').forEach((btn, i) => {
+      btn.onclick = (e) => { e.stopPropagation(); customerModal(rows[i] || DATA.customers[i]); };
+    });
+    root.querySelectorAll('tbody tr').forEach(tr => {
+      tr.onclick = (e) => {
+        if (e.target.closest('.edit-cust')) return;
+        root.querySelectorAll('tbody tr').forEach(r => r.classList.remove('selected'));
+        tr.classList.add('selected');
+      };
+    });
+    bindPagination(root);
+  }
+
+  function customerModal(c) {
+    const isEdit = !!c;
+    openModal(isEdit ? '고객 수정' : '고객 추가', `
+      <form>
+        <div class="form-grid" style="max-width:100%">
+          <label>고객명 *</label><input name="name" required value="${c?.name || ''}">
+          <label>담당자</label><input name="contact" value="${c?.contact || ''}">
+          <label>연락처</label><input name="phone" value="${c?.phone || ''}">
+          <label>주소</label><input name="address" value="${c?.address || ''}">
+        </div>
+      </form>`);
+  }
+
+  function renderCustomerLoc(root) {
+    const custOpts = DATA.customers.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+    root.innerHTML = `
+      <h2 class="page-title">고객 위치관리</h2>
+      <p class="page-desc">배송·상하차 지점 좌표 (마일리지 없음)</p>
+      <div class="split">
+        <div>
+          <div class="card">
+            <div class="card-hd">
+              <h2>위치 목록</h2>
+              <button type="button" class="btn btn-primary btn-sm" id="addLoc">+ 위치 추가</button>
+            </div>
+            <div class="card-bd">
+              <ul class="loc-list">${DATA.locations.map(l => {
+                const c = DATA.customers.find(x => x.id === l.customerId);
+                return `<li>
+                  <div><strong>${l.label}</strong><br><span class="coord">${c?.name || ''} · ${l.lat.toFixed(4)}, ${l.lon.toFixed(4)}</span></div>
+                  <button type="button" class="btn btn-sm edit-loc" data-id="${l.id}">편집</button>
+                </li>`;
+              }).join('')}</ul>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-hd"><h2>지도 미리보기</h2></div>
+          <div class="card-bd">
+            <div class="map-placeholder" id="miniMap">
+              <span class="map-pin" style="left:30%;top:40%"></span>
+              <span class="map-pin" style="left:55%;top:55%;background:#2563eb"></span>
+              <span class="map-pin" style="left:70%;top:35%"></span>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    $('#addLoc', root).onclick = () => locModal();
+    root.querySelectorAll('.edit-loc').forEach(btn => {
+      btn.onclick = () => {
+        const l = DATA.locations.find(x => x.id === Number(btn.dataset.id));
+        locModal(l);
+      };
+    });
+  }
+
+  function locModal(l) {
+    const custOpts = DATA.customers.map(c =>
+      `<option value="${c.id}" ${l && l.customerId === c.id ? 'selected' : ''}>${c.name}</option>`
+    ).join('');
+    openModal(l ? '위치 편집' : '위치 추가', `
+      <form>
+        <div class="form-grid" style="max-width:100%">
+          <label>고객</label><select required>${custOpts}</select>
+          <label>라벨 *</label><input required value="${l?.label || ''}">
+          <label>위도</label><input type="number" step="0.0001" value="${l?.lat ?? ''}" placeholder="37.4979">
+          <label>경도</label><input type="number" step="0.0001" value="${l?.lon ?? ''}" placeholder="127.0276">
+        </div>
+      </form>`);
+  }
+
+  function renderDispatchModeNav(activePage) {
+    const modes = [
+      { page: 'bulk-dispatch', main: 'dispatch', prominent: true, title: '일괄 자동 배차', desc: 'POST /optimize/dispatch · VRPTW' },
+      { page: 'dispatch-assign', main: 'dispatch', prominent: false, title: '단건·수동 배차', desc: '건 선택 · 수동 배정' },
+      { page: 'order-intake', main: 'orders', prominent: false, title: '단건 접수', desc: '접수 창' },
+    ];
+    return `<nav class="dispatch-mode-nav" aria-label="배차 모드">
+      ${modes.map(m => `
+        <button type="button" class="${m.prominent ? 'prominent ' : ''}${activePage === m.page ? 'active' : ''}"
+          data-mode-main="${m.main}" data-mode-page="${m.page}">
+          <strong>${m.title}</strong>
+          <span>${m.desc}</span>
+        </button>`).join('')}
+    </nav>`;
+  }
+
+  function bindDispatchModeNav(root, activePage) {
+    root.querySelectorAll('.dispatch-mode-nav button').forEach(btn => {
+      btn.onclick = () => {
+        if (btn.dataset.modePage === activePage) return;
+        gotoPage(btn.dataset.modeMain, btn.dataset.modePage);
+      };
+    });
+  }
+
+  function bulkEndPolicyBadge(policy) {
+    if (policy === 'return_to_depot') return '<span class="badge badge-info">복귀</span>';
+    return '<span class="badge badge-muted">open_end</span>';
+  }
+
+  function getBulkDispatchRequestJson(mode) {
+    const bd = DATA.bulkDispatch;
+    const body = {
+      profile: 'truck',
+      time_limit_seconds: 30,
+      nodes: [
+        { name: 'ABC 강남', lat: 37.4979, lon: 127.0276, cargo_weight_kg: 120, latest_at: '2026-06-01T12:00:00+09:00' },
+        { name: '일산 마트', lat: 37.6688, lon: 126.7694, cargo_weight_kg: 85, latest_at: '2026-06-01T11:30:00+09:00' },
+        { name: '분당 센터', lat: 37.3947, lon: 127.1112, cargo_weight_kg: 200, latest_at: '2026-06-01T17:00:00+09:00' },
+      ],
+      vehicles: bd.vehicles.filter(v => v.available !== false).map(v => {
+        const row = { name: v.label, max_load_kg: v.max_load_kg, end_policy: v.end_policy };
+        if (mode === 'distributed') {
+          row.start_lat = v.start_lat;
+          row.start_lon = v.start_lon;
+        }
+        return row;
+      }),
+    };
+    if (mode === 'depot') {
+      body.depot_name = bd.depot.name;
+      body.depot_lat = bd.depot.lat;
+      body.depot_lon = bd.depot.lon;
+    }
+    return JSON.stringify({ endpoint: 'POST /optimize/dispatch', ...body }, null, 2);
+  }
+
+  function getBulkDispatchApiJson() {
+    const r = DATA.bulkDispatch.results;
+    const bd = DATA.bulkDispatch;
+    return JSON.stringify({
+      endpoint: 'POST /optimize/dispatch',
+      profile: 'truck',
+      time_limit_seconds: 30,
+      departure_mode: bulkDepartureMode,
+      summary: r.summary,
+      routes: r.plans.map((p, i) => {
+        const veh = bd.vehicles[i] || bd.vehicles[0];
+        return {
+          vehicle_id: veh?.id ?? i + 1,
+          vehicle_label: p.label,
+          driver: p.driver,
+          end_policy: veh?.end_policy ?? 'open_end',
+          route: p.visits.filter(v => v.kind !== 'rest').map((v, j) => ({
+            seq: j + 1,
+            name: v.text,
+            lat: (veh?.start_lat ?? 37.45) + j * 0.01,
+            lon: (veh?.start_lon ?? 126.70) + j * 0.03,
+            type: v.kind === 'origin' ? 'start' : v.kind === 'end' ? 'end' : 'delivery',
+          })),
+          rest_stops: p.visits.filter(v => v.kind === 'rest').map(v => ({ name: v.text })),
+          planned_km: parseInt(p.distance, 10),
+          planned_min: p.duration,
+        };
+      }),
+      unassigned_nodes: r.unassigned.map(u => ({
+        label: u.name,
+        cargo_id: u.cargo_id,
+        reason: u.reason,
+      })),
+      _mock_note: 'DispatchGroup·dispatch_orders·Trip·앱 Push 미연동',
+    }, null, 2);
+  }
+
+  function renderBulkDispatch(root) {
+    const bd = DATA.bulkDispatch;
+    const res = bd.results;
+    const plans = res.plans;
+    const tabIdx = Math.min(bulkDispatchTab, plans.length - 1);
+    const plan = plans[tabIdx] || plans[0];
+
+    const visitLi = (v) => {
+      const cls = v.kind === 'rest' ? 'rest' : (v.kind === 'origin' || v.kind === 'end' ? v.kind : '');
+      return `<li class="${cls}">${v.text}</li>`;
+    };
+
+    root.innerHTML = `
+      ${renderDispatchModeNav('bulk-dispatch')}
+      <h2 class="page-title">일괄 자동 배차</h2>
+      <p class="page-desc">다차량·다배송지 자동 배정 — OR-Tools VRPTW (<code>POST /optimize/dispatch</code>)</p>
+      <div class="status-badges">
+        <span class="badge badge-incomplete">미완성</span>
+        <span class="badge badge-warn">계산만 가능</span>
+        <span class="badge badge-muted">DB 저장·앱 전달 Phase 1</span>
+      </div>
+      <div class="banner-api">
+        <strong>분산 출발 · open_end</strong>
+        센터 없이 차량별 <strong>현재 위치</strong>에서 출발 · <code>open_end</code> 종료 · API <code>POST /optimize/dispatch</code>
+        <br>백엔드는 차량별 방문 순서·좌표·법정 휴게 삽입까지 계산합니다. 폴리라인·Trip·앱 Push는 Phase 1.
+      </div>
+
+      <div class="card">
+        <div class="card-hd"><h2>입력</h2></div>
+        <div class="card-bd">
+          <h3 style="font-size:13px;margin-bottom:8px">출발 방식</h3>
+          <div class="departure-mode" role="radiogroup" aria-label="출발 방식">
+            <button type="button" class="${bulkDepartureMode === 'distributed' ? 'active' : ''}" data-departure="distributed">
+              <strong>분산 출발 (기사 위치)</strong>
+              차량별 <code>start_lat</code>/<code>start_lon</code> · 센터(Depot) 불필요 (기본)
+            </button>
+            <button type="button" class="${bulkDepartureMode === 'depot' ? 'active' : ''}" data-departure="depot">
+              <strong>센터 출발 (depot)</strong>
+              공통 물류센터에서 출발 · 레거시 <code>depot_*</code> 필드
+            </button>
+          </div>
+          <div id="bulkDepotBlock" class="${bulkDepartureMode === 'depot' ? '' : 'is-hidden'}">
+            <div class="form-grid" style="max-width:100%;grid-template-columns:120px 1fr;margin-bottom:12px">
+              <label>센터(Depot)</label>
+              <div class="toolbar">
+                <input type="text" value="${bd.depot.name}" id="bulkDepotName" style="flex:1;min-width:160px">
+                <button type="button" class="btn btn-sm" id="bulkDepotMap">지도에서 선택</button>
+                <span class="coord">${bd.depot.lat}, ${bd.depot.lon}</span>
+              </div>
+            </div>
+            <div class="map-placeholder" style="height:120px;margin-bottom:16px" id="bulkDepotMapPreview">
+              <span class="map-pin" style="left:48%;top:50%;background:var(--primary)"></span>
+            </div>
+          </div>
+
+          <h3 style="font-size:13px;margin-bottom:8px">배송지 일괄 입력</h3>
+          <p style="font-size:11px;color:var(--text-muted);margin-bottom:8px">열: 이름 · lat/lon 또는 주소 · 화물(kg) · tw_close(latest_at) · cargo_id(선택)</p>
+          <textarea class="csv-area" id="bulkStopsPaste" rows="4">${bd.stopsPaste}</textarea>
+          <div style="margin:12px 0;overflow:auto">
+            <table>
+              <thead>
+                <tr><th>이름</th><th>좌표</th><th>kg</th><th>tw_close</th><th>cargo_id</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>ABC 강남</td><td class="coord">37.4979, 127.0276</td><td>120</td><td>12:00</td><td>C-01</td></tr>
+                <tr><td>일산 마트</td><td class="coord">37.6688, 126.7694</td><td>85</td><td>11:30</td><td>C-02</td></tr>
+                <tr><td>분당 센터</td><td class="coord">37.3947, 127.1112</td><td>200</td><td>17:00</td><td>C-03</td></tr>
+                <tr><td colspan="5" style="color:var(--text-muted);font-size:12px">… 목업 12건 중 3건만 표시</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3 style="font-size:13px;margin:16px 0 8px">가용 차량 (다중 선택)</h3>
+          <ul class="checklist" id="bulkFleetList">
+            ${bd.vehicles.map(v => `
+              <li class="${v.available === false ? 'unavail' : ''}">
+                <input type="checkbox" id="bulk-v-${v.id}" checked ${v.available === false ? 'disabled' : ''}>
+                <label for="bulk-v-${v.id}">
+                  <strong>${v.label} · ${v.plate}</strong> · max ${v.max_load_kg} kg
+                  ${bulkEndPolicyBadge(v.end_policy)}
+                  <div class="fleet-meta">
+                    <span>출발 위치 · ${v.start_city}</span>
+                    <span class="coord">${v.start_lat}, ${v.start_lon}</span>
+                  </div>
+                  <small>기사 ${v.driver} · 앱 GPS 목업</small>
+                </label>
+              </li>`).join('')}
+          </ul>
+
+          <div style="margin-top:16px">
+            <span style="font-size:12px;color:var(--text-muted);margin-right:8px">옵션</span>
+            <div class="chips" style="margin-top:8px">
+              <button type="button" class="chip active" title="GraphHopper profile">profile: truck</button>
+              <button type="button" class="chip active" title="OR-Tools 제한">time_limit: 30초</button>
+            </div>
+          </div>
+
+          <details class="dev-collapse" style="margin-top:16px">
+            <summary>POST /optimize/dispatch 요청 (목업 JSON)</summary>
+            <pre class="json-pre" id="bulkRequestJsonPre">${getBulkDispatchRequestJson(bulkDepartureMode)}</pre>
+          </details>
+
+          <div style="margin-top:20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <button type="button" class="btn btn-primary" id="runBulkDispatch">일괄 배차 실행</button>
+            <span style="font-size:11px;color:var(--text-muted)">API 호출 목업 · 실제 저장 없음</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="bulkResultsCard" style="${bulkDispatchRan ? '' : 'opacity:.6'}">
+        <div class="card-hd">
+          <h2>배차 결과</h2>
+          ${bulkDispatchRan ? '<span class="badge badge-info">POST /optimize/dispatch 응답 (목업)</span>' : ''}
+        </div>
+        <div class="card-bd">
+          ${bulkDispatchRan ? '' : '<p class="empty-hint" style="padding:0 0 12px">「일괄 배차 실행」 후 차량별 route[]·미배정·지도가 표시됩니다.</p>'}
+          <div id="bulkResultsBlock" style="${bulkDispatchRan ? '' : 'display:none'}">
+            <div class="bulk-summary">
+              <span><strong>${res.summary.vehicles}</strong>대 차량</span>
+              <span><strong>${res.summary.stops}</strong>건 배송지</span>
+              <span><strong style="color:var(--warning)">${res.summary.unassigned}</strong>건 미배정</span>
+            </div>
+
+            <div class="tabs" id="bulkVehicleTabs">
+              ${plans.map((p, i) => `
+                <button type="button" class="tab ${i === tabIdx ? 'active' : ''}" data-btab="${i}">${p.label} · ${p.driver}</button>`).join('')}
+            </div>
+            <div class="split" style="margin-top:12px">
+              <div>
+                <h3 style="font-size:13px;margin-bottom:8px">방문 순서 · ${plan.plate}</h3>
+                <ol class="visit-ol">${plan.visits.map(visitLi).join('')}</ol>
+                <p class="preview-meta"><strong>계획</strong> ${plan.duration} · ${plan.distance}
+                  <br><span style="color:var(--text-muted)">주행+법정휴게 · 체류 제외 · 폴리라인 미표시</span></p>
+              </div>
+              <div>
+                <div class="map-placeholder bulk-map has-markers" id="bulkRouteMap">
+                  <svg class="routes" viewBox="0 0 400 280" preserveAspectRatio="none">
+                    <polyline points="40,220 120,160 200,120 280,90 340,140" fill="none" stroke="#2563eb" stroke-width="3" opacity=".85"/>
+                    <polyline points="40,220 100,200 180,80 260,100" fill="none" stroke="#15803d" stroke-width="3" opacity=".85"/>
+                    <polyline points="40,220 90,180 150,200 220,170" fill="none" stroke="#b45309" stroke-width="3" opacity=".85"/>
+                  </svg>
+                  <span class="map-marker v1" style="left:12%;top:72%">1</span>
+                  <span class="map-marker v1" style="left:28%;top:52%">2</span>
+                  <span class="map-marker v2" style="left:42%;top:38%">3</span>
+                  <span class="map-marker v2" style="left:58%;top:28%">4</span>
+                  <span class="map-marker v3" style="left:22%;top:58%">5</span>
+                  <span class="map-marker v3" style="left:48%;top:62%;background:#b45309">6</span>
+                </div>
+                <p style="font-size:11px;color:var(--text-muted);margin-top:6px">색상: 1호 파랑 · 2호 초록 · 3호 주황 (목업)</p>
+              </div>
+            </div>
+
+            <div style="margin-top:20px">
+              <h3 style="font-size:13px;margin-bottom:8px"><span class="badge badge-warn">미배정</span> ${res.unassigned.length}건</h3>
+              <table>
+                <thead><tr><th>배송지</th><th>cargo_id</th><th>kg</th><th>tw_close</th><th>사유</th></tr></thead>
+                <tbody>
+                  ${res.unassigned.map(u => `
+                    <tr>
+                      <td>${u.name}</td><td>${u.cargo_id}</td><td>${u.kg}</td><td>${u.tw}</td>
+                      <td><span class="badge badge-warn">${u.reason}</span></td>
+                    </tr>`).join('')}
+                </tbody>
+              </table>
+              <button type="button" class="btn btn-sm" style="margin-top:12px" id="bulkManualReassign">수동으로 미배정 건 재배정</button>
+            </div>
+
+            <div class="handoff-bar" style="margin-top:16px;background:#f8fafc;border-color:var(--border)">
+              <button type="button" class="btn btn-sm" id="bulkShowJson">결과 JSON 보기</button>
+              <button type="button" class="btn btn-sm btn-primary" disabled title="미연동 — DispatchGroup·Trip DB Phase 1">DB 저장 및 Trip 생성</button>
+              <button type="button" class="btn btn-sm btn-primary" disabled title="미연동 — 기사 앱 Push Phase 1">기사 앱 전달</button>
+            </div>
+            <details class="dev-collapse" id="bulkJsonCollapse" style="display:none;margin-top:12px">
+              <summary>POST /optimize/dispatch 응답 (목업 JSON)</summary>
+              <pre class="json-pre">${getBulkDispatchApiJson()}</pre>
+            </details>
+          </div>
+        </div>
+      </div>`;
+
+    bindDispatchModeNav(root, 'bulk-dispatch');
+    root.querySelectorAll('.departure-mode button[data-departure]').forEach(btn => {
+      btn.onclick = () => {
+        const mode = btn.dataset.departure;
+        if (mode === bulkDepartureMode) return;
+        bulkDepartureMode = mode;
+        renderBulkDispatch(root);
+      };
+    });
+    $('#bulkDepotMap', root)?.addEventListener('click', () => toast('센터 위치 선택 (지도 목업)'));
+    $('#runBulkDispatch', root).onclick = () => {
+      const checked = root.querySelectorAll('#bulkFleetList input:checked:not(:disabled)');
+      if (!checked.length) { toast('가용 차량을 1대 이상 선택하세요'); return; }
+      const btn = $('#runBulkDispatch', root);
+      btn.disabled = true;
+      btn.innerHTML = '<span class="loading"></span>일괄 배차 중…';
+      setTimeout(() => {
+        bulkDispatchRan = true;
+        bulkDispatchTab = 0;
+        toast('VRPTW 배차 계산 완료 (API 목업 · DB 미저장)');
+        renderBulkDispatch(root);
+      }, 2000);
+    };
+    root.querySelectorAll('#bulkVehicleTabs .tab').forEach(tab => {
+      tab.onclick = () => {
+        bulkDispatchTab = Number(tab.dataset.btab);
+        renderBulkDispatch(root);
+      };
+    });
+    $('#bulkManualReassign', root)?.addEventListener('click', () => {
+      dispatchRan = false;
+      gotoPage('dispatch', 'dispatch-assign');
+      toast('단건·수동 배차로 이동 — 미배정 건 재배정 (목업)');
+    });
+    $('#bulkShowJson', root)?.addEventListener('click', () => {
+      const det = $('#bulkJsonCollapse', root);
+      if (det) {
+        det.style.display = 'block';
+        det.open = true;
+      }
+    });
+  }
+
+  function renderDispatchAssign(root) {
+    const stepClass = (n) => {
+      if (!dispatchRan && n === 1) return 'active';
+      if (!dispatchRan && n > 1) return '';
+      if (dispatchRan && n <= 4) return 'done';
+      if (dispatchRan && n === 4) return 'active';
+      return n <= 3 ? 'done' : 'active';
+    };
+    const plans = DATA.dispatchPlans;
+    const tabIdx = Math.min(dispatchPreviewTab, plans.length - 1);
+    const plan = plans[tabIdx] || plans[0];
+
+    root.innerHTML = `
+      ${renderDispatchModeNav('dispatch-assign')}
+      <h2 class="page-title">단건·수동 배차</h2>
+      <p class="page-desc">운행 이전 — 배송 건 선택·배정·미리보기·기사 앱 전달 (통계 아님)</p>
+      <div class="stepper" aria-label="배차 단계">
+        <span class="step ${stepClass(1)}">1. 배송 건</span>
+        <span class="step ${stepClass(2)}">2. 배차 범위</span>
+        <span class="step ${stepClass(3)}">3. 배정</span>
+        <span class="step ${dispatchRan ? 'done' : ''} ${!dispatchRan ? '' : 'active'}">4. 결과·전달</span>
+      </div>
+
+      <div class="card section-anchor" id="sec-dispatch-orders">
+        <div class="card-hd">
+          <div><span class="sec-label">1</span><h2>배송 건 입력·목록</h2></div>
+          <button type="button" class="btn btn-sm" id="addDispatchOrder">+ 건 추가</button>
+        </div>
+        <div class="card-bd" style="padding:0">
+          <table>
+            <thead>
+              <tr>
+                <th><input type="checkbox" id="chkAllDispatch" checked aria-label="전체 선택"></th>
+                <th>상차</th><th>하차</th><th>화주</th><th>화물</th><th>연락처</th><th>희망 도착 (latest_at)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${DATA.dispatchOrders.map(o => `
+                <tr>
+                  <td><input type="checkbox" class="dispatch-chk" checked data-id="${o.id}"></td>
+                  <td>${o.pickup}</td><td>${o.delivery}</td><td>${o.shipper}</td>
+                  <td>${o.cargo}</td><td>${o.contact}</td><td>${o.latestAt}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card section-anchor" id="sec-dispatch-scope">
+        <div class="card-hd"><div><span class="sec-label">2</span><h2>배차 범위 지정</h2></div></div>
+        <div class="card-bd">
+          <div class="toolbar">
+            <label>배차 일자</label><input type="date" value="2026-06-01">
+            <label>권역</label>
+            <select><option>수도권</option><option>경기 남부</option><option>인천·김포</option></select>
+            <label>센터</label>
+            <select><option>본사 물류센터</option><option>인천 허브</option><option>성남 거점</option></select>
+          </div>
+        </div>
+      </div>
+
+      <div class="card section-anchor" id="sec-dispatch-fleet">
+        <div class="card-hd">
+          <div><span class="sec-label">3</span><h2>가용 차량·기사</h2></div>
+          <button type="button" class="btn btn-primary" id="runDispatch">배차 실행</button>
+        </div>
+        <div class="card-bd">
+          <ul class="checklist" id="fleetChecklist">
+            ${DATA.dispatchFleet.map(f => `
+              <li class="${f.available ? '' : 'unavail'}">
+                <input type="checkbox" id="fleet-${f.id}" ${f.available ? 'checked' : ''} ${f.available ? '' : 'disabled'}>
+                <label for="fleet-${f.id}">
+                  <strong>${f.vehicle}</strong> · ${f.driver}
+                  <small>${f.available ? '오늘 배차 가능' : (f.note || '가용 불가')}</small>
+                </label>
+              </li>`).join('')}
+          </ul>
+        </div>
+      </div>
+
+      <div class="card section-anchor" id="sec-dispatch-preview" style="${dispatchRan ? '' : 'opacity:.65'}">
+        <div class="card-hd"><div><span class="sec-label">4</span><h2>배차 결과 미리보기</h2></div></div>
+        <div class="card-bd">
+          ${dispatchRan ? '' : '<p class="empty-hint" style="padding:0 0 12px">「배차 실행」 후 차량별 방문 순서·지도·계획 소요가 표시됩니다.</p>'}
+          <div id="previewBlock" style="${dispatchRan ? '' : 'display:none'}">
+            <div class="tabs" id="vehicleTabs">
+              ${plans.map((p, i) => `
+                <button type="button" class="tab ${i === tabIdx ? 'active' : ''}" data-vtab="${i}">${p.vehicle} · ${p.driver}</button>`).join('')}
+            </div>
+            <div class="split" style="margin-top:12px">
+              <div>
+                <h3 style="font-size:13px;margin-bottom:8px">방문 순서</h3>
+                <ol class="visit-ol">${plan.visits.map(v => `<li>${v}</li>`).join('')}</ol>
+                <p class="preview-meta"><strong>계획 소요</strong> ${plan.duration} · <strong>거리</strong> ${plan.distance}<br>
+                <span style="color:var(--text-muted)">${plan.note} — 계획 vs 실제 비교 없음</span></p>
+              </div>
+              <div>
+                <div class="map-placeholder has-markers" style="height:220px">
+                  <span class="map-marker" style="left:18%;top:62%">1</span>
+                  <span class="map-marker" style="left:38%;top:48%">2</span>
+                  <span class="map-marker" style="left:58%;top:35%">3</span>
+                  <span class="map-marker" style="left:72%;top:52%;background:#15803d">4</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card section-anchor">
+        <div class="card-hd"><h2>배정 완료 · 미배정</h2>
+          <div class="toolbar">
+            <button type="button" class="btn btn-sm" id="manualReassign" ${dispatchRan ? '' : 'disabled'}>수동 재배정</button>
+            <button type="button" class="btn btn-sm" id="singleDispatch" ${dispatchRan ? '' : 'disabled'}>단건 배차</button>
+          </div>
+        </div>
+        <div class="card-bd assign-cols">
+          <div>
+            <div class="assign-col-hd"><span class="badge badge-ok">배정 완료</span> ${DATA.dispatchAssigned.length}건</div>
+            <ul class="route-list">
+              ${DATA.dispatchAssigned.map(a => `<li>${a.id} ${a.label} → <strong>${a.vehicle}</strong></li>`).join('')}
+            </ul>
+          </div>
+          <div>
+            <div class="assign-col-hd"><span class="badge badge-warn">미배정</span> ${DATA.dispatchUnassigned.length}건</div>
+            <ul class="route-list">
+              ${DATA.dispatchUnassigned.map(u => `<li>${u.id} ${u.label}<br><small style="color:var(--text-muted)">${u.reason}</small></li>`).join('')}
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="card section-anchor">
+        <div class="card-hd"><h2>전달 전 확인</h2></div>
+        <div class="card-bd">
+          <p class="page-desc" style="margin-bottom:12px">Trip 생성 후 순서·노드를 최종 확인하고 기사 앱으로 전달합니다.</p>
+          <div class="handoff-bar">
+            <button type="button" class="btn btn-primary" id="btnTripCreate">Trip 생성</button>
+            <button type="button" class="btn" id="btnFinalCheck">순서·노드 최종 확인</button>
+            <button type="button" class="btn btn-primary" id="btnAppHandoff">기사 앱 전달</button>
+          </div>
+        </div>
+      </div>`;
+
+    bindDispatchModeNav(root, 'dispatch-assign');
+    const chkAll = $('#chkAllDispatch', root);
+    if (chkAll) {
+      chkAll.onchange = () => {
+        root.querySelectorAll('.dispatch-chk').forEach(c => { c.checked = chkAll.checked; });
+      };
+    }
+    $('#addDispatchOrder', root).onclick = () => {
+      openModal('배송 건 추가', `
+        <form>
+          <div class="form-grid" style="max-width:100%">
+            <label>상차 *</label><input required>
+            <label>하차 *</label><input required>
+            <label>화주</label><input>
+            <label>화물</label><input>
+            <label>연락처</label><input>
+            <label>희망 도착</label><input type="datetime-local">
+          </div>
+        </form>`, () => toast('배송 건이 추가되었습니다 (목업)'));
+    };
+    $('#runDispatch', root).onclick = () => {
+      const checked = root.querySelectorAll('#fleetChecklist input:checked:not(:disabled)');
+      if (!checked.length) { toast('가용 차량·기사를 1대 이상 선택하세요'); return; }
+      dispatchRan = true;
+      toast('배차가 실행되었습니다 — 결과 미리보기를 확인하세요');
+      renderDispatchAssign(root);
+    };
+    root.querySelectorAll('#vehicleTabs .tab').forEach(tab => {
+      tab.onclick = () => {
+        dispatchPreviewTab = Number(tab.dataset.vtab);
+        renderDispatchAssign(root);
+      };
+    });
+    $('#manualReassign', root).onclick = () => toast('수동 재배정 화면 (목업)');
+    $('#singleDispatch', root).onclick = () => toast('단건 배차 (목업)');
+    $('#btnTripCreate', root).onclick = () => toast('Trip이 생성되었습니다 (목업)');
+    $('#btnFinalCheck', root).onclick = () => {
+      openModalLarge('순서·노드 최종 확인', `
+        <p style="font-size:13px;margin-bottom:12px">차량별 방문 순서와 지도 노드를 확인합니다. (계획 vs 실제 비교 없음)</p>
+        <ol class="visit-ol">${plans[0].visits.map(v => `<li>${v}</li>`).join('')}</ol>`, () => toast('최종 확인 완료'));
+    };
+    $('#btnAppHandoff', root).onclick = () => toast('기사 앱으로 전달되었습니다 (목업)');
+  }
+
+  function openTripStatsDrawer(t) {
+    const safetyHtml = t.safety === '주의'
+      ? '<span class="badge badge-warn">주의</span>'
+      : t.safety === '적합'
+        ? '<span class="badge badge-ok">적합</span>'
+        : '<span class="badge badge-muted">—</span>';
+    openDrawer(`Trip ${t.id}`, `
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px">${t.date} · ${t.driver} · ${t.status}</p>
+      <h4 style="font-size:13px;margin-bottom:8px">안전 점검</h4>
+      <p style="margin-bottom:16px">${safetyHtml}</p>
+      <h4 style="font-size:13px;margin-bottom:8px;color:var(--text-muted)">머문 시간 (경영용 · 선택)</h4>
+      <p style="font-size:13px">상차 체류: <strong>${t.dwellPickup}</strong><br>하차 체류: <strong>${t.dwellDelivery}</strong></p>
+      <p style="font-size:11px;color:var(--text-muted);margin-top:12px">계획 vs 실제·재경로·휴게소 상세는 관제 화면에 표시하지 않습니다.</p>
+    `, () => { closeDrawer(); });
+    $('#drawerSave').textContent = '닫기';
+  }
+
+  function renderTripStats(root) {
+    const s = DATA.statsSummary;
+    const periodChips = ['일', '주', '월'];
+    root.innerHTML = `
+      <h2 class="page-title">운행 통계</h2>
+      <p class="page-desc">운행 이후 — 완료 Trip 사후 통계·리포트 (가짜 데이터)</p>
+      <div class="info-banner">관제 통계 — 계획 vs 실제 미노출 (팀 합의)</div>
+
+      <div class="filter-bar card" style="padding:12px 16px;margin-bottom:16px">
+        <span style="font-weight:600;font-size:13px">기간</span>
+        <div class="chips" id="statsPeriodChips">
+          ${periodChips.map(p => `<button type="button" class="chip ${statsPeriod === p ? 'active' : ''}" data-p="${p}">${p}</button>`).join('')}
+        </div>
+        <label>기사</label><select id="statsDriver"><option value="">전체</option>${DATA.drivers.map(d => `<option>${d.name}</option>`).join('')}</select>
+        <label>차량</label><select id="statsVehicle"><option value="">전체</option>${DATA.vehicleStats.map(v => `<option>${v.plate}</option>`).join('')}</select>
+        <label>권역</label><select><option>전체</option><option>수도권</option><option>경기</option></select>
+        <button type="button" class="btn btn-sm btn-primary" id="statsApply">조회</button>
+      </div>
+
+      <div class="stat-grid-6">
+        <div class="stat-card compact"><div class="num">${s.completed}</div><div class="lbl">완료 Trip</div></div>
+        <div class="stat-card compact"><div class="num">${s.inProgress}</div><div class="lbl">진행 중</div></div>
+        <div class="stat-card compact"><div class="num">${s.cancelled}</div><div class="lbl">취소</div></div>
+        <div class="stat-card compact"><div class="num">${s.incomplete}</div><div class="lbl">미완료</div></div>
+        <div class="stat-card compact"><div class="num">${s.assignedOk}</div><div class="lbl">배정 완료</div></div>
+        <div class="stat-card compact"><div class="num">${s.assignedPending}</div><div class="lbl">미배정</div></div>
+      </div>
+      <div class="stat-card compact" style="margin-bottom:16px;max-width:240px">
+        <div class="num" style="color:var(--warning)">${s.safetyIssues}</div>
+        <div class="lbl">안전 이슈 Trip (주의 수준 포함)</div>
+      </div>
+
+      <div class="card">
+        <div class="card-hd"><h2>기사별 실적</h2></div>
+        <div class="card-bd" style="padding:0">
+          <table>
+            <thead>
+              <tr>
+                <th>기사</th><th>완료 Trip</th><th>운행시간 합</th><th>운행시간 평균</th>
+                <th>거리 합</th><th>거리 평균</th><th>운행 일수</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${DATA.driverStats.map(d => `
+                <tr class="trip-row" data-driver="${d.name}">
+                  <td>${d.name}</td><td>${d.trips}</td><td>${d.hoursSum}</td><td>${d.hoursAvg}</td>
+                  <td>${d.distSum}</td><td>${d.distAvg}</td><td>${d.days}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-hd"><h2>차량별 실적</h2></div>
+        <div class="card-bd" style="padding:0">
+          <table>
+            <thead><tr><th>차량</th><th>담당 기사</th><th>완료 Trip</th><th>운행시간 합</th><th>거리 합</th></tr></thead>
+            <tbody>
+              ${DATA.vehicleStats.map(v => `
+                <tr><td>${v.plate}</td><td>${v.driver}</td><td>${v.trips}</td><td>${v.hoursSum}</td><td>${v.distSum}</td></tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-hd"><h2>과거 경로 지도</h2></div>
+        <div class="card-bd">
+          <p class="page-desc" style="margin-bottom:8px">선택 기간·기사 Trip 궤적 (location_logs 연결선)</p>
+          <div class="map-placeholder has-markers" style="height:260px">
+            <span class="map-marker" style="left:22%;top:55%">S</span>
+            <span class="map-marker" style="left:45%;top:40%;width:8px;height:8px;font-size:0">·</span>
+            <span class="map-marker" style="left:62%;top:48%;width:8px;height:8px;font-size:0">·</span>
+            <span class="map-marker" style="left:78%;top:32%;background:#15803d">E</span>
+          </div>
+          <p style="font-size:11px;color:var(--text-muted);margin-top:8px">목업: 실제 구현 시 location_logs 기반 폴리라인 표시</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-hd"><h2>Trip 목록</h2><span style="font-size:12px;color:var(--text-muted)">행 클릭 → 상세</span></div>
+        <div class="card-bd" style="padding:0">
+          <table>
+            <thead><tr><th>Trip</th><th>기사</th><th>일자</th><th>상태</th><th>안전</th></tr></thead>
+            <tbody>
+              ${DATA.statsTrips.map(t => `
+                <tr class="trip-row" data-trip="${t.id}">
+                  <td>${t.id}</td><td>${t.driver}</td><td>${t.date}</td>
+                  <td>${statusBadge(t.status)}</td>
+                  <td>${t.safety === '주의' ? '<span class="badge badge-warn">주의</span>' : t.safety === '적합' ? '<span class="badge badge-ok">적합</span>' : '—'}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <details class="dev-collapse">
+        <summary>개발용 숨김 (내부·감사 — 관제 미노출)</summary>
+        <div class="dev-hidden">
+          계획 vs 실제 소요·거리 · 주행/휴게 상세 비교 · 재경로 횟수 · 휴게소 방문 횟수 — API·DB 집계만 사용, UI 미노출.
+        </div>
+      </details>`;
+
+    root.querySelectorAll('#statsPeriodChips .chip').forEach(chip => {
+      chip.onclick = () => { statsPeriod = chip.dataset.p; renderTripStats(root); };
+    });
+    $('#statsApply', root).onclick = () => toast(`조회: ${statsPeriod}간 필터 적용 (목업)`);
+    root.querySelectorAll('tbody .trip-row[data-trip]').forEach(tr => {
+      tr.onclick = () => {
+        const t = DATA.statsTrips.find(x => x.id === tr.dataset.trip);
+        if (t) openTripStatsDrawer(t);
+      };
+    });
+    root.querySelectorAll('tbody .trip-row[data-driver]').forEach(tr => {
+      tr.onclick = () => toast(`${tr.dataset.driver} 궤적을 지도에 표시 (목업)`);
+    });
+  }
+
+  function renderOrderIntake(root) {
+    const custOpts = DATA.customers.map(c => `<option>${c.name}</option>`).join('');
+    const drivers = DATA.drivers.filter(d => d.status === '운행가능' || d.status === '운행중');
+    root.innerHTML = `
+      ${renderDispatchModeNav('order-intake')}
+      <h2 class="page-title">접수 창</h2>
+      <p class="page-desc">신규 배송 건 접수 — 상·하차, 화주, 화물, 희망 도착 (가짜 데이터)</p>
+      <div class="split">
+        <div class="card">
+          <div class="card-hd"><h2>배송 건 정보</h2></div>
+          <div class="card-bd">
+            <form id="intakeForm">
+              <div class="form-grid" style="max-width:100%;grid-template-columns:100px 1fr">
+                <label>화주(고객) *</label><select required>${custOpts}</select>
+                <label>상차지 *</label><input required placeholder="주소 또는 지점명">
+                <label>하차지 *</label><input required placeholder="주소 또는 지점명">
+                <label>희망 도착</label>
+                <input type="datetime-local" aria-label="희망 도착 latest_at">
+                <label>연락처</label><input placeholder="담당 연락처">
+                <label>화물</label><textarea rows="2" placeholder="품목·수량·주의사항"></textarea>
+              </div>
+            </form>
+            <div style="margin-top:16px;display:flex;gap:8px">
+              <button type="button" class="btn btn-primary" id="submitOrder">접수 저장</button>
+              <button type="button" class="btn" id="calcRoute">경로 계산</button>
+            </div>
+            <div class="route-box" id="routeBox">
+              <strong>배차 미리보기</strong>
+              <ol class="route-list" id="routeList"></ol>
+              <svg class="route-svg" viewBox="0 0 300 60" preserveAspectRatio="none">
+                <polyline points="10,50 80,30 150,45 220,20 290,35" fill="none" stroke="#1e3a5f" stroke-width="2" stroke-dasharray="4 2"/>
+                <circle cx="10" cy="50" r="4" fill="#1e3a5f"/><circle cx="290" cy="35" r="4" fill="#15803d"/>
+              </svg>
+              <p class="contract-hint" title="optimize API: route[] 순서, 각 waypoint lat/lon, cargo_role pickup|delivery">API 계약: 방문 순서 · 위경도 · cargo_role (툴팁)</p>
+            </div>
+          </div>
+        </div>
+        <div class="driver-panel">
+          <h3 style="font-size:14px;margin-bottom:10px">자기사 지정</h3>
+          <input type="search" placeholder="기사 검색" style="width:100%;margin-bottom:8px" id="intakeDriverSearch">
+          <div class="driver-list" id="intakeDrivers">
+            ${drivers.map(d => `
+              <div class="driver-row" data-id="${d.id}">
+                <div><strong>${d.name}</strong><br><span style="font-size:11px;color:var(--text-muted)">${d.vehicle}</span></div>
+                ${statusBadge(d.status)}
+              </div>`).join('')}
+          </div>
+          <p style="font-size:11px;color:var(--text-muted);margin-top:8px">선택: <span id="pickedDriver">없음</span></p>
+        </div>
+      </div>`;
+
+    root.querySelectorAll('.driver-row').forEach(row => {
+      row.onclick = () => {
+        root.querySelectorAll('.driver-row').forEach(r => r.classList.remove('picked'));
+        row.classList.add('picked');
+        selectedDriverId = Number(row.dataset.id);
+        const d = DATA.drivers.find(x => x.id === selectedDriverId);
+        $('#pickedDriver', root).textContent = d ? d.name : '없음';
+      };
+    });
+
+    $('#submitOrder', root).onclick = () => {
+      const form = $('#intakeForm', root);
+      if (!validateForm(form)) return;
+      toast('오더가 접수되었습니다 (목업)');
+    };
+
+    $('#calcRoute', root).onclick = () => {
+      const btn = $('#calcRoute', root);
+      const box = $('#routeBox', root);
+      btn.disabled = true;
+      btn.innerHTML = '<span class="loading"></span>계산 중…';
+      box.classList.remove('show');
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.textContent = '경로 계산';
+        const list = $('#routeList', root);
+        list.innerHTML = DATA.routePreview.map(s => {
+          const role = s.role ? ` <span class="badge badge-info">${s.role}</span>` : '';
+          return `<li>${s.seq}. ${s.name}${role} <span class="coord">(${s.lat}, ${s.lon})</span></li>`;
+        }).join('');
+        box.classList.add('show');
+        toast('경로 미리보기가 준비되었습니다');
+      }, 1000);
+    };
+
+    $('#intakeDriverSearch', root).oninput = (e) => {
+      const q = e.target.value.toLowerCase();
+      root.querySelectorAll('.driver-row').forEach(row => {
+        const text = row.textContent.toLowerCase();
+        row.style.display = text.includes(q) ? '' : 'none';
+      });
+    };
+    bindDispatchModeNav(root, 'order-intake');
+  }
+
+  function renderOrderList(root) {
+    const statuses = ['전체', '접수', '배차', '운행중', '완료'];
+    const rows = DATA.orders.filter(o => orderFilter === '전체' || o.status === orderFilter);
+    root.innerHTML = `
+      <h2 class="page-title">오더 목록</h2>
+      <p class="page-desc">상태별 필터·조회</p>
+      <div class="card">
+        <div class="card-hd">
+          <div class="chips" id="orderChips">
+            ${statuses.map(s => `<button type="button" class="chip ${orderFilter === s ? 'active' : ''}" data-f="${s}">${s}</button>`).join('')}
+          </div>
+        </div>
+        <div class="card-bd" style="padding:0">
+          <table>
+            <thead><tr><th>오더번호</th><th>고객</th><th>상차</th><th>하차</th><th>시간창</th><th>기사</th><th>상태</th></tr></thead>
+            <tbody>${rows.map(o => `
+              <tr><td>${o.id}</td><td>${o.customer}</td><td>${o.pickup}</td><td>${o.delivery}</td>
+              <td>${o.window}</td><td>${o.driver || '—'}</td><td>${statusBadge(o.status)}</td></tr>`).join('')}
+            </tbody>
+          </table>
+          ${paginationHtml(4)}
+        </div>
+      </div>`;
+    root.querySelectorAll('#orderChips .chip').forEach(chip => {
+      chip.onclick = () => { orderFilter = chip.dataset.f; renderOrderList(root); };
+    });
+    bindPagination(root);
+  }
+
+  function init() {
+    const d = new Date();
+    $('#headerDate').textContent = d.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' });
+    $('#drawerClose').onclick = closeDrawer;
+    $('#drawerOverlay').onclick = closeDrawer;
+    $('#modalOverlay').onclick = (e) => { if (e.target === $('#modalOverlay')) closeModal(); };
+    renderNav();
+    renderPage();
+  }
+
+  init();
+})();
+  </script>
+</body>
+</html>

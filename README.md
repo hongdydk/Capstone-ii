@@ -145,7 +145,11 @@ Capstone-ii/
 ├─ SCHEMA.md
 ├─ DEPLOY.md              ← Oracle Cloud 배포 가이드
 ├─ .gitignore
-├─ 자료/
+├─ data/                  ← 데모 태스크 원본·생성 CSV/XLSX (README.md 참고)
+│  ├─ source/
+│  └─ generated/
+├─ scripts/               ← generate_fake_logistics_data.py, fill_task_xlsx.py
+├─ 자료/                  ← 백엔드 시드용 휴게소·졸음쉼터 등 (seeds/)
 │  ├─ 한국도로공사_졸음쉼터_20260225.csv
 │  └─ 휴게소정보_260325.xls
 ├─ Engine/                ← GraphHopper (git 제외: jar, osm, graph-cache)
@@ -282,7 +286,7 @@ python seeds/sync_xls_rest_stops.py
 |---|---|---|
 | `/optimize/` | POST | 경로 최적화 (trip_id 기반) |
 | `/optimize/replan` | POST | 운행 중 재최적화 |
-| `/optimize/dispatch` | POST | 다차량 VRPTW (응답만; DB 미저장 — Phase 1). 차량별 `route[]` 순서·`lat`/`lon`이 계약 중심이며 `polyline`은 선택 디버그 필드 |
+| `/optimize/dispatch` | POST | 다차량 VRPTW 일괄 배차 (응답만; DB 미저장 — Phase 1). **depot 선택**, 차량별 `start_lat`/`start_lon`, `end_policy`(`open_end` 기본). 차량별 `route[]` 순서·`lat`/`lon`이 계약 중심이며 `polyline`은 선택 디버그 필드 |
 | `/demo/route` | POST | DB 없는 데모 최적화 |
 | `/trips/` | GET/POST | 운행 목록·생성 |
 | `/trips/{id}/status` | PATCH | 운행 상태 변경 |
@@ -291,6 +295,20 @@ python seeds/sync_xls_rest_stops.py
 | `/rest-stops/` | GET/POST/DELETE | 휴게소 CRUD |
 | `/location-logs/` | GET/POST | 위치 로그 — POST 응답에 `accumulated_drive_sec`, `needs_replan` 포함 |
 | `/health` | GET | 헬스체크 |
+
+**시간창 (optimize / replan / dispatch / demo 공통)**
+
+- 요청: `reference_departure_at` (ISO-8601) — 모든 상대 변환의 기준 출발 시각. 미지정 시 `trip.departure_time`(optimize) 또는 현재 시각(Asia/Seoul).
+- 노드: `earliest_at` / `latest_at` (ISO, 개점·마감) 또는 `tw_open` / `tw_close` (`HH:MM`, 선택 `service_date`) — **캘린더 필드가 `earliest_sec`/`latest_sec`보다 우선**.
+- 하위 호환: `earliest_sec` / `latest_sec` (출발 기준 경과 초)만내도 동작. demo의 `time_window` (분)는 deprecated.
+
+**일괄 배차 (`POST /optimize/dispatch`)**
+
+- **depot (선택):** `depot_name` / `depot_lat` / `depot_lon` 을 생략할 수 있습니다. 미지정 시 공통 창고·기지 노드를 행렬에 넣지 않습니다.
+- **차량 출발:** `vehicles[]` 마다 `start_lat` / `start_lon` — 당일 첫 출발지·기사·차량 현재 위치 등. depot 없이도 배차 요청이 가능합니다.
+- **종료 정책:** 차량별 `end_policy` — `open_end`(기본, **지입·분산** 배송: 마지막 배송지에서 종료, 복귀 구간 없음) / `return_to_depot`(기지·창고 복귀).
+- **직영(레거시) 창고 복귀:** 요청에 **depot을 포함**하고 해당 차량의 `end_policy`를 `return_to_depot`으로 두면, 기존 **직영 물류센터 왕복**(`depot` → 배송지 → `depot`) 모델과 같습니다.
+- **Breaking:** 기존 클라이언트가 이전처럼 `depot_*`만내도 **호환**됩니다(동작은 전달한 `end_policy`·차량 출발 좌표에 따름).
 
 ## 9. 데모 경로 최적화 (DB 없이 테스트)
 
@@ -423,8 +441,7 @@ pytest -q
 - `tests/test_route_pipeline.py` — TSP + 휴게소 삽입 파이프라인
 - `tests/test_vrptw.py` — VRPTW(`solve_vrptw`) 단위 테스트; GraphHopper 불필요
 - `tests/test_cargo_pairs.py` — 상차·하차 쌍 제약
-- `tests/test_kakao_local.py` — 지역 배송 모드
-- `tests/test_kakao_long.py` — 장거리 모드
+- `tests/test_time_windows.py` — 캘린더 시간창 → 경과 초 변환
 
 ## 13. 주의사항
 
@@ -448,32 +465,75 @@ Oracle Cloud 배포 절차는 [DEPLOY.md](DEPLOY.md) 참고.
 
 ## 16. 패치노트
 
-### v0.4 (2026-05-06) — cargo_id N:M 제약 + UI 개선 + 목적지 선택화
+커밋 **일자 기준 최신순**. 파일 단위 상세는 [CHANGELOG.md](CHANGELOG.md) 참고.
 
-#### 백엔드
+> **로컬 미커밋 (작업 트리, 문서화 제외):** `trips.dest_*` nullable·`ReplanRequest` 목적지 Optional, VRPTW/휴게 삽입·파이프라인 테스트·`frontend_Test/` 등 — 커밋 후 해당 일자 항목으로 옮길 것.
 
-**`backend/app/api/optimize.py`**
-- `_pickup_id_to_node_idx` dict 덮어쓰기 → `_cargo_pickups / _cargo_deliveries: dict[str, list[int]]` 리스트 기반으로 교체
-- 같은 cargo_id의 모든 pickup × delivery 조합을 OR-Tools 제약으로 등록 (1:N, N:1, N:M 완전 지원)
+### 2026-05-27 (`d5b6f1d`)
 
-**`backend/app/services/graphhopper.py`**
-- GraphHopper 400 응답(도로 없는 좌표 등)을 HTTPException(422)으로 변환 → 기존 500 오류 수정
-- `from fastapi import HTTPException` 추가
+- docs: [PLAN.md](PLAN.md) Phase·API 계약·다차량 배차 범위 정리, [SCHEMA.md](SCHEMA.md)·[DEPLOY.md](DEPLOY.md) 소폭 동기화
+- docs: 사후 통계(`docs/POST_TRIP_STATS_*`, `docs/mermaid/post_trip_stats*.mmd`)·출발 전 대시보드 mermaid 토론안
+- Cursor: `.cursor/agents/*`, [team-roles](.cursor/rules/team-roles.mdc) 팀 역할 규칙
+- README·CHANGELOG 갱신 (본 섹션·온보딩 반영)
 
-**`backend/app/models/trip.py`**
-- `dest_name / dest_lat / dest_lon` → `nullable=True` 변경 (목적지 선택 입력 지원)
+### 2026-05-13 (`94a971f`)
 
-**`backend/app/schemas/optimize.py`**
-- `ExtraStopSchema`: `pickup_id`/`delivery_for` 제거 → `cargo_id: str | None` 통합
-- `ReplanRequest`: `dest_name / dest_lat / dest_lon` → `Optional` 변경
+- **API:** `POST /optimize/dispatch` VRPTW 다차량 배차 구현(기존 501 → 정상). 차량별 `route[]`·휴게 삽입·미배정 노드 반환
+- **알고리즘:** `solve_vrptw()` — 시간창·`max_load_kg` 용량·차량당 방문 수 균등화·미배정 드롭
+- **스키마:** `pickup_id`/`delivery_for` → `cargo_id` + `cargo_role` (`pickup`/`delivery`). 동일 `cargo_id` pickup×delivery **N:M** OR-Tools 제약(`_cargo_pickups` / `_cargo_deliveries`)
+- **단건 최적화:** 목적지 미지정 시 마지막 delivery를 목적지로 자동 승격
+- **GraphHopper:** 도로 불가 등 400 → HTTP **422**; 연결 실패 503. `build_time_matrix` 거리 행렬 추가 반환
+- **모델:** `Vehicle.max_load_kg`, 데모 노드 `cargo_weight_kg` 등
+- **정리:** 카카오 API 통합 테스트·copilot 임시 파일 제거
 
-#### DB 마이그레이션 필요
+### 2026-05-03
 
-```sql
-ALTER TABLE trips ALTER COLUMN dest_name DROP NOT NULL;
-ALTER TABLE trips ALTER COLUMN dest_lat  DROP NOT NULL;
-ALTER TABLE trips ALTER COLUMN dest_lon  DROP NOT NULL;
-```
+- (`77d1322`) DEPLOY·README 보완, Engine CSV 경로 정리
+- (`605aba7`) GraphHopper 엔진 버전·설정 조정
+- (`4b1fe1e`) 카카오 경로 API 의존 제거(엔진·휴게 로직 GraphHopper 중심으로 이전)
+- (`03fec5e`) README·DEPLOY 대폭 정리, 데모·휴게 삽입·관제 `frontend/index.html` 개선, 적용/테스트 이슈 수정
+- (`ff92fdb`) **GraphHopper 자체 호스팅** 연동(`Engine/`, `DEPLOY.md`), 고속도로·휴게 시드, `graphhopper.py`·`rest_stop_inserter.py` 개편, 데모 API
+- (`635b670`) 실험용 웹 내비 페이지
+- 기타 (`0c93565`, `2d9455f` 등): 작업용·잡다한 정리
+
+### 2026-05-02 (`9eaef5e`)
+
+- 상·하차 동일 `cargo_id`로 pickup–delivery 쌍 매핑 정리
+- 경로 파이프라인 테스트(`test_route_pipeline`) 보강
+
+### 2026-04-29
+
+- (`9a75718`) OR-Tools **시간창**(`earliest_sec`/`latest_sec`) 제약 추가
+- (`9730733`) 휴게소(쉼터) 검색·시드 방식 변경, 파이프라인 테스트 확장
+
+### 2026-04-15
+
+- (`3e8df32`) 고속도로 구간 휴게 검색을 **고속도로 API** 기반으로 전환, 시드·삽입 로직 수정
+- (`1cbf0e4`) 불필요 파일·코드 정리
+
+### 2026-04-08 · 2026-04-04
+
+- (`f763dba`, `78aa91f`, `ce883bc`) 병합·런타임 오류 수정
+
+### 2026-04-01
+
+- (`059da26`) 구간 비용을 **거리 비례**로 변경, README 구조 정리
+- (`bbe9298`) 지역 내 루트·휴게 검색, 차량 타입, 카카오 연동 테스트 확대
+- (`c6abf48`) Kakao 시간 행렬 → **시간·거리 행렬**, 통합 테스트 추가
+- (`9d81ea2`) 경로 검색 **1시간 캐시**, 다중 목적지 API로 휴게소 후보 검색
+- (`733dd18`, `27628a5`, `bce0c4a` 등) 공영차고지 제외·다중 목적지 지역 최적화·예제 API·버그 수정·테스트 분리
+
+### 2026-03-31 (`0c1b503`)
+
+- 카카오 API 전환 후 백엔드·스키마(`SCHEMA.md` 루트 이동) 재구성
+
+### 2026-03-27 (`08f987a`)
+
+- 상·하행(센터·배송지) 데이터 모델·스키마 초안 추가
+
+### 2026-03-25 (`bf20074`)
+
+- **KDU_RouteOn** 최초 커밋: FastAPI 백엔드, OR-Tools 단건 최적화, Tmap 데모, Docker·시드·인증·Trip CRUD 골격
 
 ---
 
@@ -498,7 +558,7 @@ ALTER TABLE trips ALTER COLUMN dest_lon  DROP NOT NULL;
         기사 앱 Push → 노드 목록 수신 · 출발/도착 선택 → 엔진 경로 확인 · Kakao 내비 SDK 주행
 ```
 
-**현재 단계:** 위 흐름 중 **VRPTW 계산·응답**(`POST /optimize/dispatch`)과 차량별 `route[]` 순서·휴게 삽입까지는 구현되어 있다. 응답의 `polyline`은 개발/테스트 확인용 선택 필드이며, 앱·웹 계약은 `route[]`의 방문 순서와 `lat`/`lon` 좌표를 기준으로 한다. **DispatchGroup·주문 테이블과의 연동, 차량별 Trip 자동 저장, Push** 등은 [PLAN.md](PLAN.md) Phase 1·§8 범위다.
+**현재 단계:** 위 흐름 중 **VRPTW 계산·응답**(`POST /optimize/dispatch`)과 차량별 `route[]` 순서·휴게 삽입까지는 구현되어 있다. 일괄 배차는 **depot 없이** 차량별 `start_lat`/`start_lon` 출발·`end_policy`=`open_end`(지입·분산 기본)를 지원하며, **depot + `return_to_depot`** 조합은 직영 창고 왕복(레거시)이다. 응답의 `polyline`은 개발/테스트 확인용 선택 필드이며, 앱·웹 계약은 `route[]`의 방문 순서와 `lat`/`lon` 좌표를 기준으로 한다. **DispatchGroup·주문 테이블과의 연동, 차량별 Trip 자동 저장, Push** 등은 [PLAN.md](PLAN.md) Phase 1·§8 범위다.
 
 ### 현재 준비된 스키마
 
@@ -526,7 +586,7 @@ ExtraStopSchema / DemoNode
 | `POST /optimize/dispatch` **영속화** | 계산 결과 → `dispatch_orders` / 차량별 `Trip` 저장 (`PLAN.md` Phase 1) |
 | 적재 용량 | 요청의 `cargo_weight_kg`/`max_load_kg` — `AddDimensionWithVehicleCapacity` 적용됨 |
 | VRPTW Time Window | 배송지별 `earliest_sec / latest_sec` — 적용됨 |
-| depot 복귀 옵션 | 편도(현재) vs 창고 복귀 선택 |
+| 차량 출발·종료 정책 | 차량별 `start_lat`/`start_lon`, `end_policy` (`open_end` 기본). depot 포함 + `return_to_depot` = 직영 창고 복귀; depot 생략 = 지입·분산 |
 | DispatchGroup Trip 자동 생성 | VRP 결과를 차량별 Trip으로 저장 |
 | Push 알림 or Polling | 기사 앱에 배차 결과 전달 |
 

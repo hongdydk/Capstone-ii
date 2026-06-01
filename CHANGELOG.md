@@ -1,5 +1,19 @@
 # 변경 이력
 
+## [2026-06-02] 일괄 배차 — 차량 출발·open_end (depot 선택)
+
+- `POST /optimize/dispatch`: **depot** (`depot_name` / `depot_lat` / `depot_lon`) **선택**. 미지정 시 공통 기지 노드 없이 배차.
+- `vehicles[]`: 차량별 **`start_lat` / `start_lon`** — 당일 출발·현재 위치 등 (depot 없이 요청 가능).
+- `vehicles[]`: **`end_policy`** — `open_end`(기본, 지입·분산: 마지막 배송지 종료) / `return_to_depot`(기지 복귀). depot + `return_to_depot` = 기존 **직영 창고 왕복** 모델.
+- **Breaking:** 없음 — 기존 클라이언트가 `depot_*`를 계속내면 하위 호환.
+- 문서: [README.md](README.md) §8·§17.
+
+## [2026-06-01] 캘린더 시간창 API
+
+- `reference_departure_at`, 노드별 `earliest_at`/`latest_at`, `tw_open`/`tw_close`(+`service_date`) 추가 (`/optimize/`, `/optimize/replan`, `/optimize/dispatch`, `/demo/route`).
+- `backend/app/services/time_windows.py`에서 Asia/Seoul 기준으로 OR-Tools용 `earliest_sec`/`latest_sec`로 변환; 기존 경과 초 필드는 deprecated·하위 호환 유지.
+- `tests/test_time_windows.py` 변환·검증 단위 테스트 추가.
+
 ## [2026-05-13] VRPTW 다차량 배차 / cargo 상하차 스키마 개편
 
 ### 삭제

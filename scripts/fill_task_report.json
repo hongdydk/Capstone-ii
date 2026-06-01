@@ -1,0 +1,76 @@
+{
+  "sheet": "태스크",
+  "header_row": 1,
+  "data_start_row": 2,
+  "data_end_row": 101,
+  "csv_rows": 50,
+  "excel_data_rows": 100,
+  "tasks": 50,
+  "column_mapping": [
+    {
+      "csv": "(generated)",
+      "excel_col": "태스크",
+      "excel_idx": 1,
+      "notes": "1..50 per shipment"
+    },
+    {
+      "csv": "(generated)",
+      "excel_col": "구분",
+      "excel_idx": 2,
+      "notes": "상차지 / 하차지"
+    },
+    {
+      "csv": "화주이름",
+      "excel_col": "장소명",
+      "excel_idx": 3,
+      "notes": "both rows"
+    },
+    {
+      "csv": "상차지",
+      "excel_col": "주소",
+      "excel_idx": 4,
+      "notes": "상차지 row only"
+    },
+    {
+      "csv": "하차지",
+      "excel_col": "주소",
+      "excel_idx": 4,
+      "notes": "하차지 row only"
+    },
+    {
+      "csv": "전화번호",
+      "excel_col": "수신자",
+      "excel_idx": 5,
+      "notes": "하차지 row; CSV has phone not name"
+    },
+    {
+      "csv": "화물종류",
+      "excel_col": "화물종류",
+      "excel_idx": 6,
+      "notes": "하차지 row only"
+    },
+    {
+      "csv": "무게(톤)",
+      "excel_col": "톤수",
+      "excel_idx": 7,
+      "notes": "하차지 row only"
+    }
+  ],
+  "unmapped_or_partial": {
+    "csv_columns_not_used": [],
+    "excel_columns_left_empty": {
+      "상차지 rows": [
+        "수신자",
+        "화물종류",
+        "톤수"
+      ],
+      "all rows": [
+        "lat/lon (not in template)"
+      ]
+    },
+    "notes": [
+      "전화번호 -> 수신자 on 하차지 row (template sample used a person name)"
+    ]
+  },
+  "output_file": "C:\\CapstoneII\\data\\generated\\routeon_태스크양식.xlsx"
+}

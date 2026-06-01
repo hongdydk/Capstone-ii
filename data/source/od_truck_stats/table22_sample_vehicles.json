@@ -1,0 +1,37 @@
+{
+  "source": "제6권 전국화물 OD 보완갱신 — 영업용화물자동차 운행기록계(DTG)",
+  "table": "표 22",
+  "title": "지역별 톤급별 표본 차량수",
+  "unit": "대/일",
+  "national": {
+    "small": 8164,
+    "medium": 15963,
+    "large": 23899,
+    "total": 48026
+  },
+  "national_share_pct": {
+    "small": 17.0,
+    "medium": 33.2,
+    "large": 49.8,
+    "total": 100.0
+  },
+  "regions": {
+    "서울": { "small": 924, "medium": 1570, "large": 1029, "total": 3523 },
+    "부산": { "small": 284, "medium": 692, "large": 2026, "total": 3002 },
+    "대구": { "small": 183, "medium": 412, "large": 531, "total": 1126 },
+    "인천": { "small": 276, "medium": 573, "large": 2333, "total": 3182 },
+    "광주": { "small": 253, "medium": 424, "large": 687, "total": 1364 },
+    "대전": { "small": 131, "medium": 432, "large": 585, "total": 1148 },
+    "울산": { "small": 58, "medium": 275, "large": 1765, "total": 2098 },
+    "세종": { "small": 20, "medium": 319, "large": 85, "total": 424 },
+    "경기": { "small": 4038, "medium": 6473, "large": 4459, "total": 14970 },
+    "강원": { "small": 216, "medium": 255, "large": 641, "total": 1112 },
+    "충북": { "small": 291, "medium": 563, "large": 946, "total": 1800 },
+    "충남": { "small": 450, "medium": 796, "large": 1403, "total": 2649 },
+    "전북": { "small": 156, "medium": 711, "large": 1403, "total": 2270 },
+    "전남": { "small": 185, "medium": 664, "large": 2129, "total": 2978 },
+    "경북": { "small": 251, "medium": 645, "large": 1680, "total": 2576 },
+    "경남": { "small": 417, "medium": 1073, "large": 2125, "total": 3615 },
+    "제주": { "small": 31, "medium": 86, "large": 72, "total": 189 }
+  }
+}

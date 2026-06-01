@@ -1,0 +1,31 @@
+{
+  "source": "제6권 전국화물 OD 보완갱신 — 영업용화물자동차 운행기록계(DTG)",
+  "table": "표 24",
+  "title": "지역별 톤급별 일평균 통행수",
+  "unit": "통행/일",
+  "national": {
+    "small": 5.97,
+    "medium": 5.4,
+    "large": 4.52,
+    "total": 5.07
+  },
+  "regions": {
+    "서울": { "small": 5.87, "medium": 4.98, "large": 4.65, "total": 5.12 },
+    "부산": { "small": 5.64, "medium": 5.46, "large": 5.0, "total": 5.17 },
+    "대구": { "small": 4.97, "medium": 4.86, "large": 4.48, "total": 4.7 },
+    "인천": { "small": 5.86, "medium": 5.34, "large": 4.42, "total": 4.72 },
+    "광주": { "small": 6.02, "medium": 6.49, "large": 4.54, "total": 5.44 },
+    "대전": { "small": 5.85, "medium": 4.94, "large": 4.64, "total": 4.89 },
+    "울산": { "small": 5.62, "medium": 6.92, "large": 4.3, "total": 4.69 },
+    "세종": { "small": 4.72, "medium": 6.05, "large": 4.65, "total": 5.73 },
+    "경기": { "small": 6.32, "medium": 5.66, "large": 4.71, "total": 5.57 },
+    "강원": { "small": 5.43, "medium": 4.84, "large": 4.22, "total": 4.61 },
+    "충북": { "small": 6.06, "medium": 4.68, "large": 4.54, "total": 4.84 },
+    "충남": { "small": 5.33, "medium": 5.21, "large": 4.55, "total": 4.88 },
+    "전북": { "small": 5.67, "medium": 4.93, "large": 4.06, "total": 4.46 },
+    "전남": { "small": 4.99, "medium": 4.99, "large": 4.34, "total": 4.53 },
+    "경북": { "small": 5.72, "medium": 5.06, "large": 4.48, "total": 4.75 },
+    "경남": { "small": 5.14, "medium": 5.24, "large": 4.51, "total": 4.81 },
+    "제주": { "small": 6.3, "medium": 4.82, "large": 3.28, "total": 4.49 }
+  }
+}

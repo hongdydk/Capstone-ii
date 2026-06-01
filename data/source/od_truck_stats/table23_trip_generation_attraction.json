@@ -1,0 +1,116 @@
+{
+  "source": "제6권 전국화물 OD 보완갱신 — 영업용화물자동차 운행기록계(DTG)",
+  "table": "표 23",
+  "title": "통행 발생량 및 도착량",
+  "unit": "통행/월",
+  "national": {
+    "generation": 3658312,
+    "generation_share_pct": 100.0,
+    "attraction": 3729406,
+    "attraction_share_pct": 100.0
+  },
+  "regions": {
+    "서울": {
+      "generation": 163115,
+      "generation_share_pct": 4.5,
+      "attraction": 164415,
+      "attraction_share_pct": 4.4
+    },
+    "부산": {
+      "generation": 175185,
+      "generation_share_pct": 4.8,
+      "attraction": 172313,
+      "attraction_share_pct": 4.6
+    },
+    "대구": {
+      "generation": 85919,
+      "generation_share_pct": 2.3,
+      "attraction": 84177,
+      "attraction_share_pct": 2.3
+    },
+    "인천": {
+      "generation": 209996,
+      "generation_share_pct": 5.7,
+      "attraction": 206914,
+      "attraction_share_pct": 5.5
+    },
+    "광주": {
+      "generation": 113508,
+      "generation_share_pct": 3.1,
+      "attraction": 112276,
+      "attraction_share_pct": 3.0
+    },
+    "대전": {
+      "generation": 63367,
+      "generation_share_pct": 1.7,
+      "attraction": 60860,
+      "attraction_share_pct": 1.6
+    },
+    "울산": {
+      "generation": 180434,
+      "generation_share_pct": 4.9,
+      "attraction": 184208,
+      "attraction_share_pct": 4.9
+    },
+    "세종": {
+      "generation": 29771,
+      "generation_share_pct": 0.8,
+      "attraction": 29298,
+      "attraction_share_pct": 0.8
+    },
+    "경기": {
+      "generation": 1107856,
+      "generation_share_pct": 30.3,
+      "attraction": 1118739,
+      "attraction_share_pct": 30.0
+    },
+    "강원": {
+      "generation": 94184,
+      "generation_share_pct": 2.6,
+      "attraction": 96649,
+      "attraction_share_pct": 2.6
+    },
+    "충북": {
+      "generation": 183129,
+      "generation_share_pct": 5.0,
+      "attraction": 196673,
+      "attraction_share_pct": 5.3
+    },
+    "충남": {
+      "generation": 299345,
+      "generation_share_pct": 8.2,
+      "attraction": 317502,
+      "attraction_share_pct": 8.5
+    },
+    "전북": {
+      "generation": 187128,
+      "generation_share_pct": 5.1,
+      "attraction": 194663,
+      "attraction_share_pct": 5.2
+    },
+    "전남": {
+      "generation": 202153,
+      "generation_share_pct": 5.5,
+      "attraction": 195996,
+      "attraction_share_pct": 5.3
+    },
+    "경북": {
+      "generation": 257601,
+      "generation_share_pct": 7.0,
+      "attraction": 277921,
+      "attraction_share_pct": 7.5
+    },
+    "경남": {
+      "generation": 289808,
+      "generation_share_pct": 7.9,
+      "attraction": 300982,
+      "attraction_share_pct": 8.1
+    },
+    "제주": {
+      "generation": 15813,
+      "generation_share_pct": 0.4,
+      "attraction": 15820,
+      "attraction_share_pct": 0.4
+    }
+  }
+}

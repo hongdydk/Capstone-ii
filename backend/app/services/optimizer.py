@@ -86,7 +86,8 @@ def solve_tsp(
     """
     n = len(time_matrix)
     if n <= 2:
-        return list(range(n))
+        # n-1 인덱스는 end depot(목적지) — 항상 마지막에 고정이므로 반환 목록에서 제외
+        return list(range(n - 1))
 
     # 목적지를 end depot으로 고정
     manager = pywrapcp.RoutingIndexManager(n, 1, [0], [n - 1])
@@ -291,5 +292,205 @@ def solve_vrptw(
 
     served = {node for route in routes for node in route}
     unserved = [i for i in range(1, n) if i not in served]
+
+    return routes, unserved
+
+
+def solve_vrptw_with_vehicle_end_policy(
+    time_matrix: list[list[int]],
+    *,
+    starts: list[int],
+    end_policies: list[str] | str = "return_to_depot",
+    ends: list[int | None] | None = None,
+    depot: int = 0,
+    vehicle_capacities: list[int] | None = None,
+    demands: list[int] | None = None,
+    time_windows: list[tuple[int, int]] | None = None,
+    time_limit_seconds: int = 30,
+    max_nodes_per_vehicle: int | None = None,
+) -> tuple[list[list[int]], list[int]] | None:
+    """
+    차량별 start/end 정책을 실험하는 별도 VRPTW solver입니다.
+
+    기존 solve_vrptw(...)와 API 연결은 유지하지 않고, multi-depot 및 open-end
+    가능성을 검증하기 위한 별도 함수입니다. 안전/휴게 제약은 여기서 계산하지
+    않고, 이 함수는 VRPTW 방문 배정만 담당합니다.
+
+    end_policies:
+      - "return_to_depot": 차량별 start에서 출발해 ends[v] 또는 depot으로 복귀
+      - "open_end": 내부 dummy end node에서 종료하여 복귀 비용을 0으로 처리
+    """
+    n = len(time_matrix)
+    num_vehicles = len(starts)
+    if n <= 1:
+        return [[]] * num_vehicles, []
+
+    if num_vehicles == 0:
+        raise ValueError("starts must contain at least one vehicle start")
+
+    if isinstance(end_policies, str):
+        policies = [end_policies] * num_vehicles
+    else:
+        policies = end_policies
+    if len(policies) != num_vehicles:
+        raise ValueError("end_policies length must match num_vehicles")
+
+    if ends is not None and len(ends) != num_vehicles:
+        raise ValueError("ends length must match starts length")
+
+    for start in starts:
+        if start < 0 or start >= n:
+            raise ValueError("starts contains an invalid node index")
+    if depot < 0 or depot >= n:
+        raise ValueError("depot is an invalid node index")
+
+    if ends:
+        for end in ends:
+            if end is not None and (end < 0 or end >= n):
+                raise ValueError("ends contains an invalid node index")
+
+    # open_end 차량은 OR-Tools end node가 필요하므로 내부 dummy node를 추가합니다.
+    extended_matrix = [row[:] for row in time_matrix]
+    routing_ends: list[int] = []
+    dummy_end_nodes: set[int] = set()
+
+    for vehicle_idx, policy in enumerate(policies):
+        if policy == "return_to_depot":
+            end = ends[vehicle_idx] if ends is not None else None
+            routing_ends.append(depot if end is None else end)
+        elif policy == "open_end":
+            dummy = len(extended_matrix)
+            dummy_end_nodes.add(dummy)
+            for row in extended_matrix:
+                row.append(0)
+            extended_matrix.append([0] * (dummy + 1))
+            routing_ends.append(dummy)
+        else:
+            raise ValueError(f"unsupported end policy: {policy}")
+
+    manager = pywrapcp.RoutingIndexManager(
+        len(extended_matrix),
+        num_vehicles,
+        starts,
+        routing_ends,
+    )
+    routing = pywrapcp.RoutingModel(manager)
+
+    # ── 이동 시간 콜백 ────────────────────────────────────────────────────
+    def transit_callback(from_index: int, to_index: int) -> int:
+        return extended_matrix[manager.IndexToNode(from_index)][manager.IndexToNode(to_index)]
+
+    transit_id = routing.RegisterTransitCallback(transit_callback)
+    routing.SetArcCostEvaluatorOfAllVehicles(transit_id)
+
+    # ── Time 차원 (항상 추가 — 시간창 없어도 비용 추적용) ──────────────────
+    max_time = max(1, sum(max(row) for row in extended_matrix))
+    routing.AddDimension(
+        transit_id,
+        slack_max=max_time,
+        capacity=max_time,
+        fix_start_cumul_to_zero=True,
+        name="Time",
+    )
+    time_dim = routing.GetDimensionOrDie("Time")
+
+    if time_windows:
+        for node_idx, (earliest, latest) in enumerate(time_windows):
+            if node_idx >= n:
+                continue
+
+            routing_indices: set[int] = set()
+            node_index = manager.NodeToIndex(node_idx)
+            if node_index >= 0:
+                routing_indices.add(node_index)
+            for vehicle_idx in range(num_vehicles):
+                if starts[vehicle_idx] == node_idx:
+                    routing_indices.add(routing.Start(vehicle_idx))
+                if routing_ends[vehicle_idx] == node_idx:
+                    routing_indices.add(routing.End(vehicle_idx))
+
+            for routing_idx in routing_indices:
+                time_dim.CumulVar(routing_idx).SetRange(earliest, latest)
+
+    # ── 적재 용량 차원 ────────────────────────────────────────────────────
+    if vehicle_capacities and demands:
+        if len(vehicle_capacities) != num_vehicles:
+            raise ValueError("vehicle_capacities length must match starts length")
+        if len(demands) != n:
+            raise ValueError("demands length must match time_matrix size")
+        extended_demands = demands + [0] * (len(extended_matrix) - n)
+
+        def demand_callback(from_index: int) -> int:
+            return extended_demands[manager.IndexToNode(from_index)]
+
+        demand_id = routing.RegisterUnaryTransitCallback(demand_callback)
+        routing.AddDimensionWithVehicleCapacity(
+            demand_id,
+            0,                   # slack 없음 (초과 불가)
+            vehicle_capacities,  # 차량별 최대 용량
+            True,                # 시작 누적값 0
+            "Capacity",
+        )
+
+    # ── 차량당 최대 방문 수 제한 (골고루 배분) ──────────────────────────────
+    fixed_nodes = {depot} | set(starts) | {end for end in routing_ends if end < n}
+    customer_nodes = set(range(n)) - fixed_nodes
+    n_delivery = len(customer_nodes)
+    _max_per_veh = max_nodes_per_vehicle or (math.ceil(n_delivery / num_vehicles) + 1)
+
+    def count_callback(from_index: int) -> int:
+        node = manager.IndexToNode(from_index)
+        return 0 if node in fixed_nodes or node in dummy_end_nodes else 1
+
+    count_id = routing.RegisterUnaryTransitCallback(count_callback)
+    routing.AddDimensionWithVehicleCapacity(
+        count_id,
+        0,
+        [_max_per_veh] * num_vehicles,
+        True,
+        "Count",
+    )
+
+    # ── 미배정 허용 (고비용 패널티 — 제약 충돌 시 고객 노드 드롭) ──────────
+    _DROP_PENALTY = max_time * len(extended_matrix) * 2
+    for node in customer_nodes:
+        routing.AddDisjunction([manager.NodeToIndex(node)], _DROP_PENALTY)
+
+    # start/end로 쓰이지 않는 depot 같은 메타 노드는 고객 방문도 미배정도 아닙니다.
+    # OR-Tools가 일반 노드처럼 강제 방문하지 않도록 0 비용으로 드롭 가능하게 둡니다.
+    terminal_nodes = set(starts) | {end for end in routing_ends if end < n}
+    for node in fixed_nodes - terminal_nodes:
+        node_index = manager.NodeToIndex(node)
+        if node_index >= 0:
+            routing.AddDisjunction([node_index], 0)
+
+    # ── 탐색 파라미터 ─────────────────────────────────────────────────────
+    search_params = pywrapcp.DefaultRoutingSearchParameters()
+    search_params.first_solution_strategy = (
+        routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
+    )
+    search_params.local_search_metaheuristic = (
+        routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
+    )
+    search_params.time_limit.seconds = time_limit_seconds
+
+    solution = routing.SolveWithParameters(search_params)
+    if not solution:
+        return None
+
+    # ── 결과 추출 ─────────────────────────────────────────────────────────
+    routes: list[list[int]] = []
+    for v in range(num_vehicles):
+        route: list[int] = []
+        index = routing.Start(v)
+        while not routing.IsEnd(index):
+            node = manager.IndexToNode(index)
+            if node not in fixed_nodes and node not in dummy_end_nodes:
+                route.append(node)
+            index = solution.Value(routing.NextVar(index))
+        routes.append(route)
+
+    served = {node for route in routes for node in route}
+    unserved = [i for i in sorted(customer_nodes) if i not in served]
 
     return routes, unserved

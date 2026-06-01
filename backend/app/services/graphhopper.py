@@ -9,6 +9,10 @@ GH_BASE = "http://localhost:8989"
 # 경로 탐색 실패 시 대체값 — 사실상 해당 경로를 TSP에서 제외
 _UNREACHABLE_SEC = 10_800_000
 
+# 구간 (lat,lon) 쌍 캐시 — 휴게소 GH 우회 비용 반복 호출 완화
+_route_cache: dict[tuple, tuple[int, int]] = {}
+_ROUTE_CACHE_MAX = 4_000
+
 
 async def _call_route(
     client: httpx.AsyncClient,
@@ -17,6 +21,15 @@ async def _call_route(
     profile: str,
 ) -> tuple[int, int]:
     """GraphHopper /route API 단일 호출 → (시간초, 거리m)."""
+    key = (
+        profile,
+        round(origin["lat"], 4),
+        round(origin["lon"], 4),
+        round(dest["lat"], 4),
+        round(dest["lon"], 4),
+    )
+    if key in _route_cache:
+        return _route_cache[key]
     try:
         resp = await client.get(
             f"{GH_BASE}/route",
@@ -31,9 +44,12 @@ async def _call_route(
         )
         resp.raise_for_status()
         path = resp.json()["paths"][0]
-        return int(path["time"] / 1000), int(path["distance"])
+        result = (int(path["time"] / 1000), int(path["distance"]))
     except Exception:
-        return _UNREACHABLE_SEC, 0
+        result = (_UNREACHABLE_SEC, 0)
+    if len(_route_cache) < _ROUTE_CACHE_MAX:
+        _route_cache[key] = result
+    return result
 
 
 async def build_time_matrix(
@@ -98,27 +114,33 @@ async def get_route_with_stats(
     return polyline, time_sec, dist_m
 
 
-async def find_best_rest_stop(prev, nxt, candidates: list[dict], profile: str = "truck") -> dict | None:
+async def find_best_rest_stop(
+    prev,
+    nxt,
+    candidates: list[dict],
+    profile: str = "truck",
+    *,
+    shortlist: list[dict] | None = None,
+) -> dict | None:
     """GH 실제 도로 시간 기반 최적 휴게소 선택.
 
-    1. Haversine으로 1차 필터 (방향 일치 top-8, 방향 무관 top-4 → 최대 12개)
-    2. 12개 후보에 대해 GH 병렬 호출 → (prev→rest) + (rest→nxt) 실제 시간 최소 선택
+    shortlist 가 주어지면 폴리라인 1차 선별 결과에 대해서만 GH 호출합니다.
+    없으면 Haversine 1차 필터 (방향 일치 top-8 + 무관 top-4) 후 GH 2차.
     """
     from app.services.rest_stop_inserter import (
-        _bearing, _angle_diff, _direction_bearing, _haversine_m,
+        _bearing, _angle_diff, _direction_bearing, _haversine_m, _name_bearing,
     )
 
-    if not candidates:
+    if not candidates and not shortlist:
         return None
 
     travel_brg = _bearing(prev.lat, prev.lon, nxt.lat, nxt.lon)
 
     def _direction_ok(c: dict) -> bool:
         db = _direction_bearing(c.get("direction"))
+        if db is None:
+            db = _name_bearing(c.get("name", ""))
         return db is None or _angle_diff(travel_brg, db) < 90
-
-    def _is_truck(c: dict) -> bool:
-        return c.get("type") == "truck_rest"
 
     def _haversine_cost(c: dict) -> float:
         return (
@@ -126,19 +148,21 @@ async def find_best_rest_stop(prev, nxt, candidates: list[dict], profile: str = 
             + _haversine_m(c["latitude"], c["longitude"], nxt.lat, nxt.lon)
         )
 
-    # 1차: Haversine 우회거리 기준 정렬 후 상위만 추출 (우선순위 고려)
-    active = [c for c in candidates if c.get("is_active", True)]
-    aligned    = sorted([c for c in active if _direction_ok(c)],    key=_haversine_cost)
-    misaligned = sorted([c for c in active if not _direction_ok(c)], key=_haversine_cost)
+    if shortlist is not None:
+        shortlist = [c for c in shortlist if c.get("is_active", True)]
+    else:
+        active = [c for c in candidates if c.get("is_active", True)]
+        aligned = sorted([c for c in active if _direction_ok(c)], key=_haversine_cost)
+        misaligned = sorted([c for c in active if not _direction_ok(c)], key=_haversine_cost)
 
-    # 타입 우선순위 정렬 (truck > highway > drowsy)
-    def _type_rank(c: dict) -> int:
-        t = c.get("type", "")
-        return 0 if t == "truck_rest" else (1 if t == "highway_rest" else 2)
+        def _type_rank(c: dict) -> int:
+            t = c.get("type", "")
+            return 0 if t == "truck_rest" else (1 if t == "highway_rest" else 2)
 
-    pool_a = sorted(aligned[:10],    key=_type_rank)[:8]
-    pool_m = sorted(misaligned[:6],  key=_type_rank)[:4]
-    shortlist = pool_a + pool_m
+        pool_a = sorted(aligned[:10], key=_type_rank)[:8]
+        pool_m = sorted(misaligned[:6], key=_type_rank)[:4]
+        shortlist = pool_a + pool_m
+
     if not shortlist:
         return None
 

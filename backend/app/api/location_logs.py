@@ -76,9 +76,24 @@ async def _calc_accumulated_drive_sec(trip_id: int, db: AsyncSession) -> int:
             if rest_duration >= _MIN_REST_SEC:
                 accumulated = 0
         else:
-            rest_start = None
+            # driving 만 rest_start 리셋 — traffic_stop(주차장·정체 저속)은 휴식 연속성 유지
+            if curr.state == DrivingState.driving:
+                rest_start = None
             # driving / traffic_stop → 운전시간 누적
             accumulated += int(interval)
+            # nxt 가 resting 이면 rest 시작 시각을 미리 기록
+            # (마지막 로그가 resting 일 때 post-loop 처리에서 rest_start 가 None 인 버그 방지)
+            if nxt.state == DrivingState.resting and rest_start is None:
+                rest_start = nxt.created_at
+
+    # 마지막 로그가 resting 인 경우 최종 휴식 시간 반영
+    # rest_start 가 None 이면 첫 번째 resting 로그 직후이므로 해당 타임스탬프를 기준으로 설정
+    if logs and logs[-1].state == DrivingState.resting:
+        if rest_start is None:
+            rest_start = logs[-1].created_at
+        rest_duration = (logs[-1].created_at - rest_start).total_seconds()
+        if rest_duration >= _MIN_REST_SEC:
+            accumulated = 0
 
     return accumulated
 
@@ -111,7 +126,8 @@ async def create_location_log(
 
     # accumulated >= REST_PLAN_SEC(6000초) 이면 replan 필요
     # 앱은 needs_replan=True 수신 시 POST /optimize/replan 호출
-    needs_replan = accumulated >= REST_PLAN_SEC
+    # 단, 현재 resting 상태이면 이미 쉬는 중 → false-positive 방지를 위해 억제
+    needs_replan = accumulated >= REST_PLAN_SEC and log.state != DrivingState.resting
 
     resp = LocationLogRead.model_validate(log).model_dump()
     resp["accumulated_drive_sec"] = accumulated

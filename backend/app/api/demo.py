@@ -7,9 +7,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.rest_stop import RestStop
-from app.schemas.optimize import RouteNodeSchema
+from app.schemas.optimize import RouteNodeSchema, StopTimeWindowInput
 from app.services import graphhopper as gh_svc
 from app.services.optimizer import solve_tsp, validate_tsp_constraints
+from app.services.time_windows import (
+    TimeWindowValidationError,
+    _has_calendar_earliest,
+    _has_calendar_latest,
+    demo_time_window_to_sec,
+    resolve_reference_departure_at,
+    resolve_time_window_bounds,
+)
 from app.services.rest_stop_inserter import (
     MAX_DRIVE_SEC,
     RouteNode,
@@ -17,13 +25,13 @@ from app.services.rest_stop_inserter import (
     _bearing,
     _direction_bearing,
     _haversine_sec,
-    plan_rest_stops_from_polyline,
+    plan_rest_stops_from_polyline_async,
 )
 
 router = APIRouter()
 
 
-class DemoNode(BaseModel):
+class DemoNode(StopTimeWindowInput):
     name: str
     lat: float
     lon: float
@@ -33,9 +41,7 @@ class DemoNode(BaseModel):
     #   dwell_time_min >= MIN_REST_MIN(15분) 이면 can_rest=True 로 자동 판정하는 로직 추가
     can_rest: bool = False  # False=상하차 작업점(누적 운전시간 유지), True=실제 휴식점(리셋)
 
-    # 도착 시간 제약 (출발 기준 경과 분) — None 이면 제약 없음
-    # 예) 일간 출발 기준 09:00 창고 도착 제약 → time_window=[60, 180] (움직임 1시간 ~ 3시간 후)
-    # 주의: OR-Tools 해가 없으면 제약을 완화해서라도 경로를 반환합니다
+    # [deprecated] 출발 기준 경과 분 — reference_departure_at + earliest_at/latest_at 등 사용 권장
     time_window: tuple[int, int] | None = None  # (earliest_min, latest_min)
 
     # 상차→하차 순서 제약: 같은 cargo_id를 가진 pickup 노드가 delivery 노드보다 먼저 방문됨
@@ -50,6 +56,7 @@ class DemoNode(BaseModel):
 
 class DemoRouteRequest(BaseModel):
     profile: Literal["car", "truck"] = "truck"
+    reference_departure_at: str | None = None  # ISO-8601 — 시간창 변환 기준(미지정 시 현재 시각)
     nodes: list[DemoNode]  # [출발지, *경유지..., 목적지]
 
 
@@ -98,8 +105,7 @@ async def _build_route_alternative(
 
     흐름:
     1. hint_polyline 근처 휴게소 필터
-    2. 폴리라인 위 이상적 시간 지점 → Haversine 방향 필터로 가장 가까운 휴게소 선택
-       (GH HTTP 호출 없음 — IC 루프 방지, 속도 향상)
+    2. 폴리라인 이상적 지점 → 상위 K 후보 → GH (prev→휴게→next) 우회 최소 선택
     3. 휴게소 포함 전체 노드로 GH 재탐색 → 실제 폴리라인·시간·거리 확보
     4. 구간 legs · rest_stop_options 계산 (맨 마지막)
     """
@@ -109,12 +115,13 @@ async def _build_route_alternative(
     # 2. 폴리라인 기반 법정 휴게소 삽입
     #    경유지가 있으면 각 구간을 독립 평가 (경유지에서 누적 운전시간 리셋)
     segment_times = [time_matrix[i][i + 1] for i in range(len(ordered_nodes) - 1)]
-    final_route = plan_rest_stops_from_polyline(
+    final_route = await plan_rest_stops_from_polyline_async(
         ordered_nodes,
         hint_polyline,
         route_time_sec,
         nearby_rests,
         segment_times=segment_times,
+        profile=profile,
     )
 
     # 3. 폴리라인 및 시간·거리 확정
@@ -336,12 +343,13 @@ async def demo_nav_route(
         total_hav = sum(seg_hav) or 1
         segment_times = [int(route_time_sec * s / total_hav) for s in seg_hav]
 
-    final_route = plan_rest_stops_from_polyline(
+    final_route = await plan_rest_stops_from_polyline_async(
         ordered,
         polyline,
         route_time_sec,
         nearby,
         segment_times=segment_times,
+        profile=profile,
     )
 
     rest_stops = [
@@ -466,22 +474,53 @@ async def demo_route(req: DemoRouteRequest, db: AsyncSession = Depends(get_db)):
     if len(req.nodes) < 2:
         raise HTTPException(status_code=400, detail="출발지와 목적지 최소 2개 필요")
 
+    try:
+        reference = resolve_reference_departure_at(req.reference_departure_at)
+    except TimeWindowValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     nodes = [{"name": n.name, "lat": n.lat, "lon": n.lon} for n in req.nodes]
 
     # 1. NxN 시간·거리 행렬
     time_matrix, dist_matrix = await gh_svc.build_time_matrix(nodes, profile=req.profile)
 
-    # 2. TSP — time_window / pickup_from_idx 필드를 OR-Tools 형식으로 변환
-    #    time_window: 분 단위를 초 단위로 변환 (* 60)
-    #    pickup_from_idx: 하차 노드가 자신의 상차지를 가리킴 → (상차idx, 하차idx) 쌍 구성
+    # 2. TSP — 캘린더/경과 초 시간창 → OR-Tools (earliest_sec, latest_sec)
     tsp_time_windows: list[tuple[int, int]] | None = None
     tsp_pickups: list[tuple[int, int]] | None = None
-
-    if any(n.time_window for n in req.nodes):
-        tsp_time_windows = [
-            (tw[0] * 60, tw[1] * 60) if (tw := n.time_window) else (0, 10_000_000)
-            for n in req.nodes
-        ]
+    _INF = 10_000_000
+    tw_rows: list[tuple[int, int]] = []
+    has_any_tw = False
+    for n in req.nodes:
+        legacy_e, legacy_l = demo_time_window_to_sec(n.time_window)
+        es = n.earliest_sec
+        ls = n.latest_sec
+        if legacy_e is not None and es is None and not _has_calendar_earliest(
+            earliest_at=n.earliest_at, tw_open=n.tw_open
+        ):
+            es = legacy_e
+        if legacy_l is not None and ls is None and not _has_calendar_latest(
+            latest_at=n.latest_at, tw_close=n.tw_close
+        ):
+            ls = legacy_l
+        try:
+            e, l = resolve_time_window_bounds(
+                reference,
+                earliest_at=n.earliest_at,
+                latest_at=n.latest_at,
+                tw_open=n.tw_open,
+                tw_close=n.tw_close,
+                service_date=n.service_date,
+                earliest_sec=es,
+                latest_sec=ls,
+                label=n.name,
+            )
+        except TimeWindowValidationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if e is not None or l is not None:
+            has_any_tw = True
+        tw_rows.append((e or 0, l or _INF))
+    if has_any_tw:
+        tsp_time_windows = tw_rows
 
     # cargo_id 그룹으로 N:M pickup/delivery 쌍 자동 생성
     _cargo_pickups: dict[str, list[int]] = {}

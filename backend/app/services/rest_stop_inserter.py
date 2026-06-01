@@ -143,6 +143,40 @@ def _haversine_sec(
     return int(_haversine_m(lat1, lon1, lat2, lon2) / 1000 / avg_speed_kmh * 3600)
 
 
+def _project_point_to_segment(
+    plat: float, plon: float,
+    alat: float, alon: float,
+    blat: float, blon: float,
+) -> tuple[float, float]:
+    """점 P를 선분 AB에 수직투영.
+
+    Returns:
+        (t, perp_m)
+        t       : 0~1. 선분 AB 위에서의 위치 비율 (A=0, B=1, 선분 밖이면 클램프)
+        perp_m  : 점 P와 투영점 사이 거리(m). 한국 영역 평면 근사 사용
+    """
+    mid_lat = (alat + blat) / 2.0
+    mx = 111_320.0 * cos(radians(mid_lat))  # 경도 1° → m
+    my = 110_540.0                          # 위도 1° → m
+
+    ax, ay = alon * mx, alat * my
+    bx, by = blon * mx, blat * my
+    px, py = plon * mx, plat * my
+
+    dx, dy = bx - ax, by - ay
+    seg_len_sq = dx * dx + dy * dy
+    if seg_len_sq == 0.0:
+        # A == B → 점과 A 사이 거리
+        return 0.0, sqrt((px - ax) ** 2 + (py - ay) ** 2)
+
+    t = ((px - ax) * dx + (py - ay) * dy) / seg_len_sq
+    t_clamped = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+    proj_x = ax + t_clamped * dx
+    proj_y = ay + t_clamped * dy
+    perp = sqrt((px - proj_x) ** 2 + (py - proj_y) ** 2)
+    return t_clamped, perp
+
+
 def _pick_best_rest(
     prev: RouteNode, nxt: RouteNode, candidates: list[dict]
 ) -> dict | None:
@@ -252,7 +286,66 @@ def _split_polyline_by_ratios(
     return result
 
 
-def plan_rest_stops_from_polyline(
+# 휴게소 폴리라인 1차 선별 · GH 2차 우회 비용
+_MAX_PERP_M: float = 5_000.0
+_PERP_WEIGHT: float = 3.0
+_GH_SHORTLIST_K: int = 12
+
+
+def _leg_for_proj(
+    ordered_nodes: list[RouteNode],
+    node_projs: list[float],
+    target_proj_m: float,
+) -> tuple[RouteNode, RouteNode]:
+    """이상적 휴게 위치(폴리라인 누적 m)가 속한 구간의 양 끝 노드."""
+    for ni in range(len(ordered_nodes) - 1):
+        if target_proj_m <= node_projs[ni + 1]:
+            return ordered_nodes[ni], ordered_nodes[ni + 1]
+    return ordered_nodes[-2], ordered_nodes[-1]
+
+
+def _shortlist_by_polyline(
+    pool: list[dict],
+    target_proj_m: float,
+    get_proj,
+    *,
+    k: int = _GH_SHORTLIST_K,
+) -> list[dict]:
+    """폴리라인 투영 점수 상위 k개 후보 (GH 2차 호출용)."""
+    scored: list[tuple[float, dict]] = []
+    for c in pool:
+        proj_m, perp_m = get_proj(c)
+        if perp_m > _MAX_PERP_M:
+            continue
+        scored.append((abs(proj_m - target_proj_m) + perp_m * _PERP_WEIGHT, c))
+    scored.sort(key=lambda x: x[0])
+    return [c for _, c in scored[:k]]
+
+
+def _pick_rest_haversine(
+    base: list[dict],
+    target_proj_m: float,
+    get_proj,
+) -> dict | None:
+    """Haversine·폴리라인 투영만으로 휴게소 1개 선택 (테스트·GH 폴백)."""
+
+    def _score(c: dict) -> float:
+        proj_m, perp_m = get_proj(c)
+        if perp_m > _MAX_PERP_M:
+            return float("inf")
+        return abs(proj_m - target_proj_m) + perp_m * _PERP_WEIGHT
+
+    for type_filter in ("truck_rest", "highway_rest", None):
+        pool = [c for c in base if c.get("type") == type_filter] if type_filter else base
+        if not pool:
+            continue
+        cand = min(pool, key=_score)
+        if _score(cand) < float("inf"):
+            return cand
+    return None
+
+
+async def plan_rest_stops_from_polyline_async(
     ordered_nodes: list[RouteNode],
     polyline: list[list[float]],
     route_time_sec: int,
@@ -260,10 +353,14 @@ def plan_rest_stops_from_polyline(
     initial_drive_sec: int = 0,
     is_emergency: bool = False,
     segment_times: list[int] | None = None,
+    *,
+    profile: str = "truck",
+    use_gh: bool = True,
 ) -> list[RouteNode]:
-    """폴리라인 위 이상적 시간 지점에서 가장 가까운 휴게소를 선택해 삽입합니다.
+    """폴리라인 위 이상적 시간 지점에서 휴게소를 선택해 삽입합니다.
 
-    GH HTTP 호출 없이 Haversine + 방향 필터만 사용합니다.
+    use_gh=True: 폴리라인 상위 K → GraphHopper (prev→휴게→next) 우회 시간 최소.
+    use_gh=False: Haversine·폴리라인 투영만 (단위 테스트용).
 
     segment_times 있을 때 (경유지 존재):
       각 구간(노드→다음 노드)을 독립적으로 평가합니다.
@@ -272,10 +369,10 @@ def plan_rest_stops_from_polyline(
     알고리즘:
       1. (initial_drive_sec + route_time_sec) 를 MAX_DRIVE_SEC 로 나누어 필요 휴게소 수 계산
       2. 폴리라인 위 누적 거리를 평균 속도로 시간 환산 → 이상적 휴게 좌표 추출
-      3. 각 이상적 좌표에서 방향·타입 우선순위(truck > highway > drowsy)로 가장 가까운 후보 선택
+      3. 각 이상적 좌표에서 후보 선택 (GH 또는 Haversine)
       4. 폴리라인 투영 거리 기준으로 ordered_nodes 사이 적절한 위치에 삽입
     """
-    import math
+    from app.services import graphhopper as gh_svc
 
     # ── 경유지 구간 분리 처리 ─────────────────────────────────────────────────
     # 경유지(waypoint)에서 운전자가 멈추므로 구간별 독립 평가
@@ -302,25 +399,29 @@ def plan_rest_stops_from_polyline(
                 if (c["latitude"], c["longitude"]) not in used_coords
             ]
             # 구간별 재귀 호출 — accumulated_drive 를 initial_drive_sec 로 전달
-            seg_result = plan_rest_stops_from_polyline(
+            seg_result = await plan_rest_stops_from_polyline_async(
                 [ordered_nodes[i], ordered_nodes[i + 1]],
                 seg_poly,
                 seg_time,
                 avail,
                 initial_drive_sec=accumulated_drive,
                 is_emergency=is_emergency,
+                profile=profile,
+                use_gh=use_gh,
             )
 
             # ── 경유지 직전 휴게소 이월 처리 ─────────────────────────────────
+            # 마지막 구간(목적지 직전)은 이월할 다음 구간이 없으므로 이월하지 않음
             # 마지막 휴게소가 경유지 20분 이내에 삽입됐으면, 경유지를 먼저 방문하고
             # 그 휴게소를 다음 구간 초입으로 미룬다.
             # (실제 법정 시간은 보장: MAX_DRIVE_SEC 초과 전 어차피 다음 구간 직후 삽입)
             _DEFER_THRESH_SEC = 1_200  # 20분
+            is_last_segment = (i == len(ordered_nodes) - 2)
             last_rest_node = next(
                 (n for n in reversed(seg_result) if n.type == "rest_stop"), None
             )
             deferred_rest: dict | None = None
-            if last_rest_node is not None:
+            if not is_last_segment and last_rest_node is not None:
                 time_to_junction = _haversine_sec(
                     last_rest_node.lat, last_rest_node.lon,
                     ordered_nodes[i + 1].lat, ordered_nodes[i + 1].lon,
@@ -418,29 +519,53 @@ def plan_rest_stops_from_polyline(
         brg = _bearing(polyline[-2][0], polyline[-2][1], polyline[-1][0], polyline[-1][1])
         return polyline[-1][0], polyline[-1][1], brg
 
-    # Greedy 삽입: 누적 운전시간이 plan_threshold에 도달하는 지점에서 가장 가까운 휴게소 선택
-    # 균등 분할(1/n, 2/n ...) 대신 "최대한 늦게" 원칙으로 자연스러운 위치 선택
-    selected: list[tuple[float, dict]] = []  # (폴리라인 투영 거리, rest)
+    # ── 점-선분 수직투영 기반 폴리라인 위치 매핑 ─────────────────────────
+    # 좌표를 폴리라인에 투영하면 (누적거리 m, 폴리라인까지 수직거리 m) 가 나옴.
+    # 누적거리 → "휴게소가 경로의 어느 시점에 위치하는가" (시간 매핑용)
+    # 수직거리 → "휴게소가 도로에서 얼마나 떨어졌는가" (선택 페널티용)
+    def _poly_proj(lat: float, lon: float) -> tuple[float, float]:
+        cum = 0.0
+        best_perp = float("inf")
+        best_cum = 0.0
+        for i, d in enumerate(seg_dists):
+            t, perp = _project_point_to_segment(
+                lat, lon,
+                polyline[i][0], polyline[i][1],
+                polyline[i + 1][0], polyline[i + 1][1],
+            )
+            if perp < best_perp:
+                best_perp = perp
+                best_cum = cum + t * d
+            cum += d
+        return best_cum, best_perp
+
+    # Greedy 삽입: 누적 운전시간이 plan_threshold에 도달하는 지점에서 휴게소 선택.
+    selected: list[tuple[float, dict]] = []
     used_coords: set[tuple[float, float]] = set()
 
-    def _poly_proj(lat: float, lon: float) -> float:
-        """좌표의 폴리라인 상 누적 거리(m) — 실제 선택 휴게소 위치 계산용."""
-        cum = 0.0
-        best_d = float("inf")
-        best_c = 0.0
-        for i, d in enumerate(seg_dists):
-            mlat = (polyline[i][0] + polyline[i + 1][0]) / 2
-            mlon = (polyline[i][1] + polyline[i + 1][1]) / 2
-            dist = _haversine_m(lat, lon, mlat, mlon)
-            if dist < best_d:
-                best_d = dist
-                best_c = cum + d / 2
-            cum += d
-        return best_c
+    proj_cache: dict[tuple[float, float], tuple[float, float]] = {}
 
-    next_insert_sec = float(plan_threshold - initial_drive_sec)
+    def _get_proj(c: dict) -> tuple[float, float]:
+        key = (c["latitude"], c["longitude"])
+        if key not in proj_cache:
+            proj_cache[key] = _poly_proj(c["latitude"], c["longitude"])
+        return proj_cache[key]
+
+    node_projs = [_poly_proj(n.lat, n.lon)[0] for n in ordered_nodes]
+
+    next_insert_sec: float
+    if initial_drive_sec < plan_threshold:
+        # 아직 선제 임계값 미달 — plan_threshold까지 남은 시간
+        next_insert_sec = float(plan_threshold - initial_drive_sec)
+    else:
+        # plan_threshold 이미 초과 — 법정 최대(MAX 또는 emergency MAX)까지 남은 시간으로 보정
+        # (음수 방지: initial_drive_sec > _legal_max 이면 즉시 삽입)
+        _legal_max = (MAX_DRIVE_SEC + EMERGENCY_EXTEND_SEC) if is_emergency else MAX_DRIVE_SEC
+        next_insert_sec = max(0.0, float(_legal_max - initial_drive_sec))
     while next_insert_sec < route_time_sec:
-        ilat, ilon, travel_brg = _poly_point(next_insert_sec)
+        _, _, travel_brg = _poly_point(next_insert_sec)
+        target_proj_m = next_insert_sec * avg_speed_ms
+        prev_node, nxt_node = _leg_for_proj(ordered_nodes, node_projs, target_proj_m)
 
         def _dir_ok(c: dict, brg: float = travel_brg) -> bool:
             db = _direction_bearing(c.get("direction"))
@@ -457,42 +582,28 @@ def plan_rest_stops_from_polyline(
         base = aligned if aligned else avail
 
         best: dict | None = None
-        for type_filter in ("truck_rest", "highway_rest", None):
-            pool = [c for c in base if c.get("type") == type_filter] if type_filter else base
-            if pool:
-                best = min(pool, key=lambda c: _haversine_m(ilat, ilon, c["latitude"], c["longitude"]))
-                break
+        if base:
+            if use_gh:
+                shortlist = _shortlist_by_polyline(base, target_proj_m, _get_proj)
+                if shortlist:
+                    best = await gh_svc.find_best_rest_stop(
+                        prev_node, nxt_node, base,
+                        profile=profile, shortlist=shortlist,
+                    )
+            if best is None:
+                best = _pick_rest_haversine(base, target_proj_m, _get_proj)
 
         if best:
             used_coords.add((best["latitude"], best["longitude"]))
-            # 선택된 휴게소의 실제 폴리라인 투영 거리로 기록
-            actual_proj = _poly_proj(best["latitude"], best["longitude"])
+            actual_proj, _ = _get_proj(best)
             selected.append((actual_proj, best))
-            # 다음 삽입 기준: 이 휴게소 실제 위치 기준 plan_threshold 후
-            # (고정값 증가 대신 실제 위치 기준으로 재계산 → 두 휴게소가 가깝게 몰리는 현상 방지)
+            # 다음 삽입 기준점: 이번 휴게소의 실제 폴리라인 위치 + plan_threshold
             next_insert_sec = actual_proj / avg_speed_ms + plan_threshold
         else:
             next_insert_sec += plan_threshold
 
     if not selected:
         return list(ordered_nodes)
-
-    # ordered_nodes 각각의 폴리라인 투영 거리 계산
-    def _proj_dist(lat: float, lon: float) -> float:
-        cum = 0.0
-        best_d = float("inf")
-        best_c = 0.0
-        for i, d in enumerate(seg_dists):
-            mlat = (polyline[i][0] + polyline[i + 1][0]) / 2
-            mlon = (polyline[i][1] + polyline[i + 1][1]) / 2
-            dist = _haversine_m(lat, lon, mlat, mlon)
-            if dist < best_d:
-                best_d = dist
-                best_c = cum + d / 2
-            cum += d
-        return best_c
-
-    node_projs = [_proj_dist(n.lat, n.lon) for n in ordered_nodes]
 
     # 투영 거리 오름차순으로 ordered_nodes 사이에 삽입
     result: list[RouteNode] = []
@@ -527,196 +638,27 @@ def plan_rest_stops_from_polyline(
     return result
 
 
-async def insert_rest_stops(
+def plan_rest_stops_from_polyline(
     ordered_nodes: list[RouteNode],
-    time_matrix: list[list[int]],
+    polyline: list[list[float]],
+    route_time_sec: int,
     rest_candidates: list[dict],
     initial_drive_sec: int = 0,
     is_emergency: bool = False,
-    picker=None,   # time_fn 없을 때만 사용 (Haversine 폴백)
-    time_fn=None,  # async (origin_dict, dest_dict) -> int(초) — GH 실측
+    segment_times: list[int] | None = None,
 ) -> list[RouteNode]:
-    """TSP 정렬된 노드 목록에 법정 휴게소를 삽입합니다.
+    """동기 래퍼 — 단위 테스트용 (use_gh=False). API는 async 버전 사용."""
+    return asyncio.run(
+        plan_rest_stops_from_polyline_async(
+            ordered_nodes,
+            polyline,
+            route_time_sec,
+            rest_candidates,
+            initial_drive_sec=initial_drive_sec,
+            is_emergency=is_emergency,
+            segment_times=segment_times,
+            use_gh=False,
+        )
+    )
 
-    time_fn 있을 때 (권장):
-        GH 병렬 호출로 last_node → 각 후보 실측 시간 계산 →
-        accumulated + t 가 plan_threshold 에 가장 가까운 후보 선택
-        (Haversine 범위 필터 없음)
 
-    time_fn 없을 때 (폴백):
-        기존 Haversine 시간 범위 필터 + picker(혹은 _pick_best_rest) 사용
-    """
-    # 긴급 예외 여부에 따라 임계값·휴식시간 결정
-    plan_threshold = REST_PLAN_SEC
-    rest_minutes = MIN_REST_MIN
-    if is_emergency:
-        # 정체·불가피 상황: 최대 연속 운전 3시간까지 허용, 휴식 30분 의무
-        plan_threshold = MAX_DRIVE_SEC + EMERGENCY_EXTEND_SEC  # 10,800초
-        rest_minutes = EMERGENCY_REST_MIN
-
-    result: list[RouteNode] = []
-    accumulated = initial_drive_sec
-    # 같은 구간 내 무한 루프 방지 — 이미 삽입된 휴게소 좌표 추적
-    used_coords: set[tuple[float, float]] = set()
-
-    for i in range(len(ordered_nodes) - 1):
-        current_node = ordered_nodes[i]
-        result.append(current_node)
-        seg_time = time_matrix[i][i + 1]
-
-        # API 미반환 구간(_UNREACHABLE_SEC)은 실제 이동이 없으므로 누적에서 제외
-        if seg_time >= _UNREACHABLE_SEC:
-            continue
-
-        # 하나의 구간 안에서도 임계값을 여러 번 초과할 수 있으므로 while 로 처리
-        remaining = seg_time
-        last_node = current_node
-        next_node = ordered_nodes[i + 1]
-
-        while accumulated + remaining >= plan_threshold:
-            # ── 법적 여유 체크 ────────────────────────────────────────────────
-            # 남은 구간 전체가 MAX_DRIVE_SEC(2시간) 이내면 굳이 멈출 필요 없음
-            # (선제 임계값 REST_PLAN_SEC에 걸렸더라도 법적으로는 통과 가능)
-            if accumulated + remaining <= MAX_DRIVE_SEC:
-                accumulated += remaining
-                break
-
-            # ── 사용 안 된 후보 풀 ────────────────────────────────────────────
-            avail = [
-                c for c in rest_candidates
-                if (c["latitude"], c["longitude"]) not in used_coords
-            ]
-            if not avail:
-                accumulated += remaining
-                break
-
-            best: dict | None = None
-            remaining_after: int = 0
-
-            if time_fn is not None:
-                # ── GH 실제 도로 시간 기반 선택 ─────────────────────────────
-                # last_node → 각 후보 시간을 GH 병렬 호출로 계산
-                last_dict = {"lat": last_node.lat, "lon": last_node.lon}
-                times_to_cand: list[int] = list(await asyncio.gather(*[
-                    time_fn(last_dict, {"lat": c["latitude"], "lon": c["longitude"]})
-                    for c in avail
-                ]))
-
-                # 법적 유효 범위: accumulated + t 가 plan_threshold*70% ~ MAX_DRIVE_SEC
-                min_drive = max(0, int(plan_threshold * 0.7) - accumulated)
-                max_drive = MAX_DRIVE_SEC - accumulated
-                valid = [
-                    (c, t) for c, t in zip(avail, times_to_cand)
-                    if min_drive <= t <= max_drive
-                ]
-                # 유효 후보 없으면 max_drive 제한 해제 (min_drive 만 유지)
-                if not valid:
-                    valid = [
-                        (c, t) for c, t in zip(avail, times_to_cand)
-                        if t >= min_drive
-                    ]
-                if not valid:
-                    accumulated += remaining
-                    break
-
-                # 진행 방향 방위각 — 역방향 휴게소 필터링용
-                travel_brg = _bearing(
-                    last_node.lat, last_node.lon,
-                    next_node.lat, next_node.lon,
-                )
-
-                def _dir_ok(c: dict) -> bool:
-                    """방향 데이터 또는 이름 기반으로 진행 방향과 90° 이내인지 확인."""
-                    db = _direction_bearing(c.get("direction"))
-                    if db is None:
-                        db = _name_bearing(c.get("name", ""))  # truck_rest 이름 패턴 폴백
-                    return db is None or _angle_diff(travel_brg, db) < 90
-
-                def _pick_by_type(pool: list[tuple[dict, int]]) -> tuple[dict, int] | None:
-                    """방향 필터 우선 + 타입 우선순위(truck > highway > drowsy)."""
-                    aligned = [(c, t) for c, t in pool if _dir_ok(c)]
-                    base = aligned if aligned else pool  # 방향 일치 없으면 전체 폴백
-                    for type_filter in ("truck_rest", "highway_rest", None):
-                        subset = (
-                            [ct for ct in base if ct[0].get("type") == type_filter]
-                            if type_filter else base
-                        )
-                        if subset:
-                            return min(subset, key=lambda ct: abs((accumulated + ct[1]) - plan_threshold))
-                    return None
-
-                result_ct = _pick_by_type(valid)
-                if result_ct is None:
-                    accumulated += remaining
-                    break
-                best, _ = result_ct
-
-                # 삽입 후 남은 구간 실측 시간
-                remaining_after = await time_fn(
-                    {"lat": best["latitude"], "lon": best["longitude"]},
-                    {"lat": next_node.lat, "lon": next_node.lon},
-                )
-
-            else:
-                # ── Haversine 폴백 ───────────────────────────────────────────
-                min_gap_sec = max(0, int(plan_threshold * 0.7) - accumulated)
-                ideal_sec   = max(plan_threshold - accumulated, 1)
-                max_gap_sec = max(int(ideal_sec * 1.5), min_gap_sec + 1_800)
-                available = [
-                    c for c in avail
-                    if _haversine_sec(last_node.lat, last_node.lon, c["latitude"], c["longitude"]) >= min_gap_sec
-                    and _haversine_sec(last_node.lat, last_node.lon, c["latitude"], c["longitude"]) <= max_gap_sec
-                ]
-                if not available:
-                    available = [
-                        c for c in avail
-                        if _haversine_sec(last_node.lat, last_node.lon, c["latitude"], c["longitude"]) >= min_gap_sec
-                    ]
-                if not available:
-                    accumulated += remaining
-                    break
-
-                best = (
-                    await picker(last_node, next_node, available)
-                    if picker is not None
-                    else _pick_best_rest(last_node, next_node, available)
-                )
-                if best is None:
-                    accumulated += remaining
-                    break
-
-                last_to_next = _haversine_sec(
-                    last_node.lat, last_node.lon, next_node.lat, next_node.lon
-                ) or 1
-                rest_to_next = _haversine_sec(
-                    best["latitude"], best["longitude"], next_node.lat, next_node.lon
-                ) or 0
-                remaining_after = int(remaining * min(rest_to_next / last_to_next, 1.0))
-
-            # 삽입 후 남은 구간이 REST_PLAN_SEC 이하면 완주 가능 → 삽입 생략
-            if remaining_after <= REST_PLAN_SEC:
-                accumulated += remaining
-                break
-
-            coord = (best["latitude"], best["longitude"])
-            used_coords.add(coord)
-            result.append(RouteNode(
-                type="rest_stop",
-                name=best["name"],
-                lat=best["latitude"],
-                lon=best["longitude"],
-                min_rest_minutes=rest_minutes,
-            ))
-            accumulated = 0
-            remaining = remaining_after
-            last_node = RouteNode(
-                type="rest_stop",
-                name=best["name"],
-                lat=best["latitude"],
-                lon=best["longitude"],
-            )
-        else:
-            accumulated += remaining
-
-    result.append(ordered_nodes[-1])
-    return result

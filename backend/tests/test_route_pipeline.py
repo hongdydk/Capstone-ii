@@ -2,12 +2,11 @@
 경로 최적화 파이프라인 통합 테스트
 TSP 순서 최적화(optimizer) → 휴게소 삽입(rest_stop_inserter) 전 구간 검증
 """
-import asyncio
 import pytest
 from app.services.optimizer import solve_tsp
 from app.services.rest_stop_inserter import (
     RouteNode,
-    insert_rest_stops,
+    plan_rest_stops_from_polyline,
     REST_PLAN_SEC,
     MAX_DRIVE_SEC,
     EMERGENCY_EXTEND_SEC,
@@ -44,29 +43,38 @@ def _run_pipeline(
     initial_drive_sec: int = 0,
     is_emergency: bool = False,
 ) -> list[RouteNode]:
-    """TSP → 노드 재정렬 → 휴게소 삽입 파이프라인 실행"""
+    """TSP → 노드 재정렬 → 폴리라인 기반 휴게소 삽입 파이프라인 실행"""
     tsp_order = solve_tsp(matrix, time_limit_seconds=time_limit_seconds)
 
     # TSP 결과 순서로 노드 재정렬 (목적지는 항상 마지막)
     destination = nodes[-1]
     ordered = [nodes[i] for i in tsp_order] + [destination]
 
-    # 재정렬 기준으로 시간 행렬도 재구성
+    # 구간별 이동 시간 (full_order 인덱스 기준)
     full_order = tsp_order + [len(nodes) - 1]
-    n = len(full_order)
-    reordered_matrix = [
-        [matrix[full_order[i]][full_order[j]] for j in range(n)]
-        for i in range(n)
+    segment_times = [
+        matrix[full_order[i]][full_order[i + 1]]
+        for i in range(len(full_order) - 1)
     ]
+    route_time_sec = sum(segment_times)
 
-    return asyncio.run(insert_rest_stops(
+    # 테스트용 합성 폴리라인 — 각 노드 사이에 중간점 삽입
+    polyline: list[list[float]] = []
+    for i, node in enumerate(ordered):
+        polyline.append([node.lat, node.lon])
+        if i < len(ordered) - 1:
+            nxt = ordered[i + 1]
+            polyline.append([(node.lat + nxt.lat) / 2, (node.lon + nxt.lon) / 2])
+
+    return plan_rest_stops_from_polyline(
         ordered,
-        reordered_matrix,
+        polyline,
+        route_time_sec,
         rest_candidates,
         initial_drive_sec=initial_drive_sec,
         is_emergency=is_emergency,
-        # picker=None → Haversine 사용 (테스트는 API 불필요)
-    ))
+        segment_times=segment_times,
+    )
 
 
 REST_CANDIDATES = [
@@ -230,7 +238,7 @@ class TestFullPipeline:
         highway_rest 가 우선 선택되어야 합니다.
         """
         nodes = _make_nodes(2)
-        matrix = _make_matrix(2, REST_PLAN_SEC + 1)
+        matrix = _make_matrix(2, MAX_DRIVE_SEC + 1)
         candidates = [
             {"name": "졸음쉼터A", "latitude": 37.05, "longitude": 127.05,
              "is_active": True, "type": "drowsy_shelter"},
@@ -247,7 +255,7 @@ class TestFullPipeline:
         highway_rest 후보가 없을 때 drowsy_shelter 로 폴백합니다.
         """
         nodes = _make_nodes(2)
-        matrix = _make_matrix(2, REST_PLAN_SEC + 1)
+        matrix = _make_matrix(2, MAX_DRIVE_SEC + 1)
         candidates = [
             {"name": "졸음쉼터A", "latitude": 37.05, "longitude": 127.05,
              "is_active": True, "type": "drowsy_shelter"},

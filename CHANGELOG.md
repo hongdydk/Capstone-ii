@@ -1,84 +1,80 @@
-# 변경 이력
+# Changelog
 
-## [2026-06-02] 일괄 배차 — 차량 출발·open_end (depot 선택)
+이 문서는 저장소의 Git 커밋 이력을 누락 없이 정리한 기록입니다.
+정렬 기준은 날짜 오름차순(전체 이력)이며, 최근 주요 변경은 최신순으로 제공합니다.
 
-- `POST /optimize/dispatch`: **depot** (`depot_name` / `depot_lat` / `depot_lon`) **선택**. 미지정 시 공통 기지 노드 없이 배차.
-- `vehicles[]`: 차량별 **`start_lat` / `start_lon`** — 당일 출발·현재 위치 등 (depot 없이 요청 가능).
-- `vehicles[]`: **`end_policy`** — `open_end`(기본, 지입·분산: 마지막 배송지 종료) / `return_to_depot`(기지 복귀). depot + `return_to_depot` = 기존 **직영 창고 왕복** 모델.
-- **Breaking:** 없음 — 기존 클라이언트가 `depot_*`를 계속내면 하위 호환.
-- 문서: [README.md](README.md) §8·§17.
+## 요약
 
-## [2026-06-01] 캘린더 시간창 API
+- 2026-06-02에 데이터 샘플/스크립트 추가와 관제 UX 개편이 집중 반영되었습니다.
+- `feat` 커밋으로 다차량 배차 계약(VRPTW/휴게 삽입 포함)과 목업 구조 이전이 진행되었습니다.
+- `docs` 커밋으로 README/PLAN/CHANGELOG와 API 계약 문서 동기화가 이뤄졌습니다.
+- 2026-05-03 전후로 GraphHopper 연동 및 Kakao API 제거 등 라우팅 엔진 축이 정리되었습니다.
+- 2026-04월에는 휴게소 검색/삽입, 시간·거리 행렬, 테스트 분리 등 최적화 기초 작업이 축적되었습니다.
+- 최초 커밋(2026-03-13)부터 현재(2026-06-02)까지 전체 이력을 유지합니다.
 
-- `reference_departure_at`, 노드별 `earliest_at`/`latest_at`, `tw_open`/`tw_close`(+`service_date`) 추가 (`/optimize/`, `/optimize/replan`, `/optimize/dispatch`, `/demo/route`).
-- `backend/app/services/time_windows.py`에서 Asia/Seoul 기준으로 OR-Tools용 `earliest_sec`/`latest_sec`로 변환; 기존 경과 초 필드는 deprecated·하위 호환 유지.
-- `tests/test_time_windows.py` 변환·검증 단위 테스트 추가.
+## 최근 주요 변경
 
-## [2026-05-13] VRPTW 다차량 배차 / cargo 상하차 스키마 개편
+- 2026-06-02 · 6ad2c5c · [feat] · feat: 관제 목업 UX 개편 및 라이트 테마 변형 추가 (hongdydk)
+- 2026-06-02 · d431c4b · [docs] · docs: README·CHANGELOG·PLAN 배차·데이터·API 계약 동기화 (hongdydk)
+- 2026-06-02 · 1ee44bf · [feat] · feat: 관제·내비 목업을 frontend_Test로 이전 (control TOC·앱 mockup)
+  (hongdydk)
+- 2026-06-02 · a2140e7 · [feat] · feat: 다차량 출발·시간창·배차 계약 강화 및 VRPTW·휴게 삽입 테스트
+  (hongdydk)
+- 2026-06-02 · 62930a9 · [data] · data: 가짜 물류 주문·정차 CSV 및 태스크 양식 xlsx 샘플 (hongdydk)
+- 2026-06-02 · 8a784c9 · [chore] · scripts: OD 통계·가짜 물류 데이터·태스크 xlsx 생성 스크립트
+  (hongdydk)
+- 2026-06-02 · 42ee3ed · [data] · data: OD 화물통계 표22-26 참조 JSON 및 data README 추가 (hongdydk)
+- 2026-05-27 · d5b6f1d · [docs] · docs: 웹·앱 API 계약·배차 플랜·사후 통계 토론안 및 Cursor 팀 에이전트
+  (hongdydk)
+- 2026-05-13 · 94a971f · [feat] · feat: VRPTW 다차량 배차 구현 및 cargo 상하차 스키마 개편 (hongdydk)
+- 2026-05-03 · 77d1322 · [chore] · 변경 (hongdydk)
 
-### 삭제
-- `.github/copilot-instructions.md` — 작업용 임시 파일 제거
-- `backend/tests/helpers.py` — 카카오 API 테스트 헬퍼 제거
-- `backend/tests/test_kakao_local.py` — 카카오 로컬 테스트 제거
-- `backend/tests/test_kakao_long.py` — 카카오 장거리 테스트 제거
+## 전체 커밋 이력
 
----
-
-### `backend/app/services/optimizer.py`
-- **`solve_vrptw()` 신규 추가**
-  - OR-Tools `RoutingModel`으로 다차량 VRPTW 최적화
-  - **Time Dimension**: 노드별 시간창 `(earliest_sec, latest_sec)` 제약
-  - **Capacity Dimension** (`AddDimensionWithVehicleCapacity`): 차량별 최대 적재량 제약
-  - **Count Dimension**: 차량당 최대 방문 수 `ceil(배송지수 / 차량수) + 1` 제한 → 균등 배분 강제
-  - `AddDisjunction`으로 미배정 노드 허용 (고비용 패널티 드롭)
-  - `PATH_CHEAPEST_ARC` + `GUIDED_LOCAL_SEARCH` 탐색
-  - 반환: `(vehicle_routes, unserved_nodes)` 또는 `None`
-
----
-
-### `backend/app/api/optimize.py`
-- **`optimize()` 엔드포인트 수정**
-  - 상하차 매핑 방식 변경: `pickup_id` / `delivery_for` → `cargo_id` / `cargo_role` (`"pickup"` / `"delivery"`)
-  - N:M 복합 상하차 지원: 동일 `cargo_id`를 가진 pickup·delivery 인덱스 전체 조합을 자동으로 `pickup_deliveries` 쌍으로 생성
-  - `extra_stops`의 `stop_type`에 `"pickup"`, `"delivery"` 추가 처리
-  - **목적지 자동 승격**: 목적지 미지정 시 마지막 delivery 경유지를 목적지로 자동 사용
-- **`dispatch_multi()` 완전 구현** (기존 501 stub → 정상 동작)
-  - 요청: `DispatchRequest` (depot 좌표, 차량 목록, 배송지 목록, 프로파일)
-  - GraphHopper `build_time_matrix()`로 N×N 시간·거리 행렬 계산
-  - `solve_vrptw()`로 차량별 방문 순서 결정
-  - 차량별 `get_route_with_stats()`로 내부 확인용 폴리라인·거리·소요시간 산출
-  - `plan_rest_stops_from_polyline()`으로 내부 GraphHopper 폴리라인 기반 휴게소 자동 삽입
-  - 반환: `DispatchResponse` (차량별 `route[]` 순서·`lat`/`lon`, 미배정 노드 목록; `polyline`은 선택 디버그 필드)
-
----
-
-### `backend/app/schemas/optimize.py`
-- `ExtraStop`: `pickup_id` / `delivery_for` 필드 → `cargo_id: str | None` / `cargo_role: Literal["pickup","delivery"] | None` 교체
-- **신규 스키마 추가**
-  - `DispatchNodeInput`: 배송지 이름·좌표·시간창·화물 중량
-  - `DispatchVehicleInput`: 차량 이름·최대 적재량
-  - `DispatchRequest`: depot, 차량 목록, 배송지 목록, GraphHopper 프로파일, 탐색 제한 시간
-  - `DispatchVehicleRoute`: 차량별 결과 (`route[]` 순서·`lat`/`lon`, 선택 디버그용 폴리라인, 거리, 소요시간, 화물 합계, 휴게소 수)
-  - `DispatchResponse`: 전체 차량 경로 + 미배정 노드 목록
-
----
-
-### `backend/app/api/demo.py`
-- `DemoNode`의 `pickup_from_idx` 필드 제거
-- 대체 필드 추가: `cargo_id: str | None`, `cargo_role: Literal["pickup","delivery"] | None`, `cargo_weight_kg: float | None`
-- N:M 복합 상하차 쌍 자동 생성 (`cargo_id` 기준 매핑)
-
----
-
-### `backend/app/models/vehicle.py`
-- `max_load_kg: Mapped[float | None]` 컬럼 추가 (`Float` 타입)
-
-### `backend/app/schemas/vehicle.py`
-- `VehicleBase`, `VehiclePatch`에 `max_load_kg: float | None = None` 필드 추가
-
----
-
-### `backend/app/services/graphhopper.py`
-- `get_route_with_stats()`: `httpx.ConnectError` 발생 시 `HTTPException(503)` 으로 변환 (500 Internal Error 방지)
-- `get_route_alternatives()`: 동일하게 503 변환 및 기타 예외 폴백 처리
-- `build_time_matrix()`: 시간 행렬과 함께 거리 행렬도 반환하도록 변경 (`dist_matrix` 추가 반환값)
+- 2026-03-13 · d3f7435 · [chore] · first commit (hongdydk)
+- 2026-03-13 · 5aaf018 · [chore] · main (hongdydk)
+- 2026-03-13 · ab92df3 · [chore] · Revert "main" (hongdydk)
+- 2026-03-15 · ed8f0ca · [docs] · README UPDATE (hongdydk)
+- 2026-03-25 · bf20074 · [chore] · KDU_RouteOn First Commit (hongdydk)
+- 2026-03-25 · 60e124a · [chore] · Delete (hongdydk)
+- 2026-03-27 · 08f987a · [data] · 상하행 데이터 추가 (hongdydk)
+- 2026-03-31 · 0c1b503 · [fix] · 카키오 api 변경 후 재작업 (hongdydk)
+- 2026-04-01 · bce0c4a · [feat] · 예제 api 코드 추가 (hongdydk)
+- 2026-04-01 · 27628a5 · [fix] · 버그수정및 다중 목적지 이용한 지역내 루트 최적화 (hongdydk)
+- 2026-04-01 · 733dd18 · [fix] · 공영차고지 부분은 휴식장소 검색시 제거 (hongdydk)
+- 2026-04-01 · 9d81ea2 · [feat] · 검색 캐시 적용(1시간) 휴게소 선택 다중목적지 api로 검색 (hongdydk)
+- 2026-04-01 · c6abf48 · [test] · 시간 행렬에서 시간거리 행렬로 변경 및 테스트 추가 api 작동 확인 완료
+  (hongdydk)
+- 2026-04-01 · 3ed6863 · [test] · 테스트 분리 (hongdydk)
+- 2026-04-01 · bbe9298 · [test] · 지역내 루트파인딩 휴게장소 찾기+ 차량 타입 추가+ 버그 추가+ 테스트추가
+  (hongdydk)
+- 2026-04-01 · 059da26 · [feat] · 거리 비례로 루트 파인딩 변경 (hongdydk)
+- 2026-04-04 · ce883bc · [fix] · 수정 완료 (hongdydk)
+- 2026-04-04 · 78aa91f · [fix] · 병합 오류 해결 (hongdydk)
+- 2026-04-08 · f763dba · [fix] · 오류 해결 (hongdydk)
+- 2026-04-15 · 1cbf0e4 · [chore] · 필요없는거 제거 (hongdydk)
+- 2026-04-15 · 3e8df32 · [fix] · 고속도로 적용 오류 제거후 고속도로 api로 변경 (hongdydk)
+- 2026-04-29 · 9730733 · [feat] · 쉼터 방법 변경 (hongdydk)
+- 2026-04-29 · 9a75718 · [feat] · 시간적 제약 추가 (hongdydk)
+- 2026-05-02 · 9eaef5e · [feat] · 상차 id 하차 id 동일화 (hongdydk)
+- 2026-05-03 · ff92fdb · [feat] · GraphHopper 라우팅 엔진 연동 및 휴게소 삽입 로직 개선 (hongdydk)
+- 2026-05-03 · 03fec5e · [docs] · readme, 적용방법 업데이트 테스트중 문제 생긴거 고침 (hongdydk)
+- 2026-05-03 · 635b670 · [feat] · 재미로 만든 웹 내비게이션 (hongdydk)
+- 2026-05-03 · 2d9455f · [chore] · 쓸데 없는거 변경 (hongdydk)
+- 2026-05-03 · 4b1fe1e · [chore] · 카카오 api 제거 (hongdydk)
+- 2026-05-03 · 605aba7 · [chore] · 그래프호퍼 버전 변경 (hongdydk)
+- 2026-05-03 · 0c93565 · [chore] · 작업용 파일 변경 (hongdydk)
+- 2026-05-03 · 77d1322 · [chore] · 변경 (hongdydk)
+- 2026-05-13 · 94a971f · [feat] · feat: VRPTW 다차량 배차 구현 및 cargo 상하차 스키마 개편 (hongdydk)
+- 2026-05-27 · d5b6f1d · [docs] · docs: 웹·앱 API 계약·배차 플랜·사후 통계 토론안 및 Cursor 팀 에이전트
+  (hongdydk)
+- 2026-06-02 · 42ee3ed · [data] · data: OD 화물통계 표22-26 참조 JSON 및 data README 추가 (hongdydk)
+- 2026-06-02 · 8a784c9 · [chore] · scripts: OD 통계·가짜 물류 데이터·태스크 xlsx 생성 스크립트
+  (hongdydk)
+- 2026-06-02 · 62930a9 · [data] · data: 가짜 물류 주문·정차 CSV 및 태스크 양식 xlsx 샘플 (hongdydk)
+- 2026-06-02 · a2140e7 · [feat] · feat: 다차량 출발·시간창·배차 계약 강화 및 VRPTW·휴게 삽입 테스트
+  (hongdydk)
+- 2026-06-02 · 1ee44bf · [feat] · feat: 관제·내비 목업을 frontend_Test로 이전 (control TOC·앱 mockup)
+  (hongdydk)
+- 2026-06-02 · d431c4b · [docs] · docs: README·CHANGELOG·PLAN 배차·데이터·API 계약 동기화 (hongdydk)
+- 2026-06-02 · 6ad2c5c · [feat] · feat: 관제 목업 UX 개편 및 라이트 테마 변형 추가 (hongdydk)

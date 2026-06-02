@@ -1,6 +1,6 @@
 # RouteOn 운행 이후 사후 통계 ERD
 
-> **성격:** `trips.status = completed` **이후**에 적재·조회하는 통계 스키마 **초안**. `PLAN.md`·`SCHEMA.md`·OLTP 모델과 정합. **팀장 확정 전 배치 job·분모 정책 단정 금지.**
+> **성격:** `trips.status = completed` **이후**에 적재·조회하는 통계 스키마 **초안**. `README.md` Roadmap·`SCHEMA.md`·OLTP 모델과 정합. **팀장 확정 전 배치 job·분모 정책 단정 금지.**
 
 **범위 밖 (별도 문서·모니터링):** VRPTW 실행 로그, 실시간 관제, `algorithm_events` / `dispatch_run_events` 중심 배차·알고리즘 품질 대시보드. 거래처 SLA·체류(하역) 기반 경영 KPI는 선택(Phase 2+)·별도.
 
@@ -223,9 +223,9 @@ Phase 0 임시: `trips` + `completed_at` 일자만으로 완료 건수·평균 �
 |------|------|
 | [STATS_ERD.md](STATS_ERD.md) | 안내·요약 ERD 미리보기 |
 | [SCHEMA.md](../SCHEMA.md) | 운영 OLTP |
-| [PLAN.md](../PLAN.md) | Phase·제품 결정 |
+| [README.md](../README.md) | 프로젝트 범위·Roadmap |
 
-**팀장 handoff 후보:** replan 카운트 멱등, `batch_completion_rate` 분모, 거리 실측(GPS vs 엔진) 정책, 통계 DB 분리 여부 — `PLAN.md` 승격 전 본 문서는 **초안**으로 유지.
+**팀장 handoff 후보:** replan 카운트 멱등, `batch_completion_rate` 분모, 거리 실측(GPS vs 엔진) 정책, 통계 DB 분리 여부 — 범위 확정 전 본 문서는 **초안**으로 유지.
 
 ---
 

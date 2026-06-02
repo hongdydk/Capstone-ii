@@ -111,7 +111,7 @@
 ---
 ### `dispatch_groups` (차후 구현 예정 — VRP)
 
-> **용어:** 아래 표는 **도메인·DDL 목표**를 기술한다. 실제 `backend/seeds/init_tables.sql`·SQLAlchemy 모델과 컬럼이 다를 수 있으며, VRP 결과 → Trip·`dispatch_orders` 반영 파이프라인은 [PLAN.md](PLAN.md) Phase 1·§8에서 다룬다. `POST /optimize/dispatch` API는 이미 VRPTW **계산·응답**을 제공하며, 응답 계약은 차량별 `route[]` 순서와 `lat`/`lon` 중심이다. `polyline`은 있다면 선택 디버그 필드이며 DB 스키마 컬럼으로 다루지 않는다.
+> **용어:** 아래 표는 **도메인·DDL 목표**를 기술한다. 실제 `backend/seeds/init_tables.sql`·SQLAlchemy 모델과 컬럼이 다를 수 있으며, VRP 결과 → Trip·`dispatch_orders` 반영 파이프라인은 `README.md`의 Roadmap 범위를 따른다. `POST /optimize/dispatch` API는 이미 VRPTW **계산·응답**을 제공하며, 응답 계약은 차량별 `route[]` 순서와 `lat`/`lon` 중심이다. `polyline`은 있다면 선택 디버그 필드이며 DB 스키마 컬럼으로 다루지 않는다.
 
 다수 차량 배차 묶음입니다. 관리자가 배차 1건에 여러 기사/차량을 한번에 배정할 때 사용합니다.
 
@@ -131,7 +131,7 @@
 
 ### `dispatch_orders` (차후 구현 예정 — VRP)
 
-> Phase 1에서 ORM·DDL 정렬 후 VRP 입력/결과 반영용으로 쓴다. 현재 저장소의 `init_tables`·모델 유무와 대조할 것([PLAN.md](PLAN.md) §8).
+> ORM·DDL 정렬 후 VRP 입력/결과 반영용으로 쓴다. 현재 저장소의 `init_tables`·모델 유무와 대조할 것(`README.md` Roadmap 참고).
 
 배차 묶음 내 개별 배송 주문입니다. VRP 최적화 실행 후 `assigned_trip_id` / `visit_order` 가 채워집니다.
 

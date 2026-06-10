@@ -38,7 +38,7 @@ class Trip(Base):
     vehicle_weight_kg: Mapped[float | None] = mapped_column(Float)
     vehicle_length_cm: Mapped[float | None] = mapped_column(Float)
     vehicle_width_cm: Mapped[float | None] = mapped_column(Float)
-    # ISO-8601 문자열. 있으면 Kakao Future Directions API 사용
+    # ISO-8601 문자열. 출발 시각 메타데이터(시간창 변환 등에 사용)
     departure_time: Mapped[str | None] = mapped_column(String(50))
     # 계산된 최적 경로 노드 목록 (RouteNode JSON 배열)
     optimized_route: Mapped[dict | None] = mapped_column(JSONB)

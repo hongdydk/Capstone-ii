@@ -125,10 +125,10 @@ async def find_best_rest_stop(
     """GH 실제 도로 시간 기반 최적 휴게소 선택.
 
     shortlist 가 주어지면 폴리라인 1차 선별 결과에 대해서만 GH 호출합니다.
-    없으면 Haversine 1차 필터 (방향 일치 top-8 + 무관 top-4) 후 GH 2차.
+    없으면 방향·타입 우선순위로 후보를 축소한 뒤 GH 2차 호출합니다.
     """
     from app.services.rest_stop_inserter import (
-        _bearing, _angle_diff, _direction_bearing, _haversine_m, _name_bearing,
+        _bearing, _angle_diff, _direction_bearing, _name_bearing,
     )
 
     if not candidates and not shortlist:
@@ -142,25 +142,19 @@ async def find_best_rest_stop(
             db = _name_bearing(c.get("name", ""))
         return db is None or _angle_diff(travel_brg, db) < 90
 
-    def _haversine_cost(c: dict) -> float:
-        return (
-            _haversine_m(prev.lat, prev.lon, c["latitude"], c["longitude"])
-            + _haversine_m(c["latitude"], c["longitude"], nxt.lat, nxt.lon)
-        )
-
     if shortlist is not None:
         shortlist = [c for c in shortlist if c.get("is_active", True)]
     else:
         active = [c for c in candidates if c.get("is_active", True)]
-        aligned = sorted([c for c in active if _direction_ok(c)], key=_haversine_cost)
-        misaligned = sorted([c for c in active if not _direction_ok(c)], key=_haversine_cost)
+        aligned = [c for c in active if _direction_ok(c)]
+        misaligned = [c for c in active if not _direction_ok(c)]
 
         def _type_rank(c: dict) -> int:
             t = c.get("type", "")
             return 0 if t == "truck_rest" else (1 if t == "highway_rest" else 2)
 
-        pool_a = sorted(aligned[:10], key=_type_rank)[:8]
-        pool_m = sorted(misaligned[:6], key=_type_rank)[:4]
+        pool_a = sorted(aligned, key=_type_rank)[:8]
+        pool_m = sorted(misaligned, key=_type_rank)[:4]
         shortlist = pool_a + pool_m
 
     if not shortlist:

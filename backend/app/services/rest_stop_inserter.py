@@ -13,8 +13,7 @@ MIN_REST_MIN: int  = 15       # 법정 최소 휴식 시간 (분)
 EMERGENCY_EXTEND_SEC: int = 3_600   # 1시간 연장 허용 → 최대 연속 운전 10,800초(3시간)
 EMERGENCY_REST_MIN: int   = 30      # 긴급 연장 사용 시 의무 휴식 시간 (분, 일반 15분의 2배)
 
-# Kakao API가 경로를 찾지 못한 구간에 부여하는 대체값 (kakao.py 와 동일)
-# 이 값이 행렬에 들어온 구간은 실제 이동이 불가능하므로 누적 운전시간 계산에서 제외
+# GraphHopper 경로 탐색 실패 시 대체값 — TSP/누적 운전시간 계산에서 제외
 _UNREACHABLE_SEC: int = 10_800_000
 
 # 주요 도시 좌표 — 휴게소 direction 방위각 계산용
@@ -134,13 +133,80 @@ def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * R * atan2(sqrt(a), sqrt(1 - a))
 
 
-def _haversine_sec(
-    lat1: float, lon1: float,
-    lat2: float, lon2: float,
-    avg_speed_kmh: float = 80.0,
+def _seg_dists_m(polyline: list[list[float]]) -> list[float]:
+    """폴리라인 구간별 직선 거리(m)."""
+    return [
+        _haversine_m(polyline[i][0], polyline[i][1], polyline[i + 1][0], polyline[i + 1][1])
+        for i in range(len(polyline) - 1)
+    ]
+
+
+def _point_proj_on_polyline(
+    polyline: list[list[float]],
+    seg_dists: list[float],
+    lat: float,
+    lon: float,
+) -> tuple[float, float]:
+    """좌표를 폴리라인에 투영 → (누적거리 m, 수직거리 m)."""
+    cum = 0.0
+    best_perp = float("inf")
+    best_cum = 0.0
+    for i, d in enumerate(seg_dists):
+        t, perp = _project_point_to_segment(
+            lat, lon,
+            polyline[i][0], polyline[i][1],
+            polyline[i + 1][0], polyline[i + 1][1],
+        )
+        if perp < best_perp:
+            best_perp = perp
+            best_cum = cum + t * d
+        cum += d
+    return best_cum, best_perp
+
+
+def _drive_sec_on_polyline(
+    polyline: list[list[float]],
+    route_time_sec: int,
+    from_lat: float,
+    from_lon: float,
+    to_lat: float,
+    to_lon: float,
 ) -> int:
-    """Haversine 거리를 속도 기반 시간(초)으로 환산. 후보 필터용 거칠 추정."""
-    return int(_haversine_m(lat1, lon1, lat2, lon2) / 1000 / avg_speed_kmh * 3600)
+    """폴리라인 위 두 점 사이 주행 시간(초) — 구간 시간 비율로 환산."""
+    if len(polyline) < 2 or route_time_sec <= 0:
+        return 0
+    seg_dists = _seg_dists_m(polyline)
+    total_m = sum(seg_dists)
+    if total_m <= 0:
+        return 0
+    from_proj, _ = _point_proj_on_polyline(polyline, seg_dists, from_lat, from_lon)
+    to_proj, _ = _point_proj_on_polyline(polyline, seg_dists, to_lat, to_lon)
+    delta = max(0.0, to_proj - from_proj)
+    return int(delta / total_m * route_time_sec)
+
+
+async def _drive_sec_between(
+    polyline: list[list[float]],
+    route_time_sec: int,
+    from_lat: float,
+    from_lon: float,
+    to_lat: float,
+    to_lon: float,
+    *,
+    use_gh: bool,
+    profile: str,
+) -> int:
+    """두 좌표 간 주행 시간(초). use_gh=True면 GraphHopper, 아니면 폴리라인 비율."""
+    if use_gh:
+        from app.services import graphhopper as gh_svc
+        return await gh_svc.get_travel_time(
+            {"lat": from_lat, "lon": from_lon},
+            {"lat": to_lat, "lon": to_lon},
+            profile,
+        )
+    return _drive_sec_on_polyline(
+        polyline, route_time_sec, from_lat, from_lon, to_lat, to_lon,
+    )
 
 
 def _project_point_to_segment(
@@ -177,71 +243,6 @@ def _project_point_to_segment(
     return t_clamped, perp
 
 
-def _pick_best_rest(
-    prev: RouteNode, nxt: RouteNode, candidates: list[dict]
-) -> dict | None:
-    """우회 비용(prev → 휴게소 → next) Haversine 최소 후보를 반환합니다.
-
-    주행 방위각과 휴게소 direction 방위각을 비교해 동일 방향(±90°) 후보를 우선합니다.
-    highway_rest 우선, 없으면 drowsy_shelter로 폴백합니다.
-    """
-    travel_brg = _bearing(prev.lat, prev.lon, nxt.lat, nxt.lon)
-
-    def _direction_ok(c: dict) -> bool:
-        """방향 데이터 또는 이름 기반으로 주행 방향과 90° 이내인지 확인."""
-        db = _direction_bearing(c.get("direction"))
-        if db is None:
-            db = _name_bearing(c.get("name", ""))  # truck_rest 이름 패턴 폴백
-        return db is None or _angle_diff(travel_brg, db) < 90
-
-    def _best_from(pool: list[dict]) -> dict | None:
-        best: dict | None = None
-        best_cost = float("inf")
-        for c in pool:
-            if not c.get("is_active", True):
-                continue
-            cost = (
-                _haversine_sec(prev.lat, prev.lon, c["latitude"], c["longitude"])
-                + _haversine_sec(c["latitude"], c["longitude"], nxt.lat, nxt.lon)
-            )
-            if cost < best_cost:
-                best_cost = cost
-                best = c
-        return best
-
-    aligned   = [c for c in candidates if _direction_ok(c)]
-    misaligned = [c for c in candidates if not _direction_ok(c)]
-
-    def _is_truck(c: dict) -> bool:
-        return c.get("type") == "truck_rest"
-
-    def _is_highway(c: dict) -> bool:
-        return c.get("type") == "highway_rest"
-
-    # 1순위: 방향 일치 truck_rest (화물차 전용)
-    result = _best_from([c for c in aligned if _is_truck(c)])
-    if result:
-        return result
-    # 2순위: 방향 일치 highway_rest
-    result = _best_from([c for c in aligned if _is_highway(c)])
-    if result:
-        return result
-    # 3순위: 방향 일치 drowsy_shelter
-    result = _best_from(aligned)
-    if result:
-        return result
-    # 4순위(폴백): 방향 불일치 truck_rest
-    result = _best_from([c for c in misaligned if _is_truck(c)])
-    if result:
-        return result
-    # 5순위(폴백): 방향 불일치 highway_rest
-    result = _best_from([c for c in misaligned if _is_highway(c)])
-    if result:
-        return result
-    # 6순위(최후 폴백): 방향 불일치 drowsy_shelter
-    return _best_from(misaligned)
-
-
 def _split_polyline_by_ratios(
     polyline: list[list[float]],
     ratios: list[float],
@@ -250,10 +251,7 @@ def _split_polyline_by_ratios(
     if len(ratios) == 1:
         return [list(polyline)]
 
-    seg_dists = [
-        _haversine_m(polyline[i][0], polyline[i][1], polyline[i + 1][0], polyline[i + 1][1])
-        for i in range(len(polyline) - 1)
-    ]
+    seg_dists = _seg_dists_m(polyline)
     total_dist = sum(seg_dists)
     if total_dist == 0:
         return [list(polyline)] * len(ratios)
@@ -322,12 +320,12 @@ def _shortlist_by_polyline(
     return [c for _, c in scored[:k]]
 
 
-def _pick_rest_haversine(
+def _pick_rest_by_polyline(
     base: list[dict],
     target_proj_m: float,
     get_proj,
 ) -> dict | None:
-    """Haversine·폴리라인 투영만으로 휴게소 1개 선택 (테스트·GH 폴백)."""
+    """폴리라인 투영 점수로 휴게소 1개 선택 (단위 테스트·GH 미사용 시)."""
 
     def _score(c: dict) -> float:
         proj_m, perp_m = get_proj(c)
@@ -360,7 +358,7 @@ async def plan_rest_stops_from_polyline_async(
     """폴리라인 위 이상적 시간 지점에서 휴게소를 선택해 삽입합니다.
 
     use_gh=True: 폴리라인 상위 K → GraphHopper (prev→휴게→next) 우회 시간 최소.
-    use_gh=False: Haversine·폴리라인 투영만 (단위 테스트용).
+    use_gh=False: 폴리라인 투영만 (단위 테스트용).
 
     segment_times 있을 때 (경유지 존재):
       각 구간(노드→다음 노드)을 독립적으로 평가합니다.
@@ -369,7 +367,7 @@ async def plan_rest_stops_from_polyline_async(
     알고리즘:
       1. (initial_drive_sec + route_time_sec) 를 MAX_DRIVE_SEC 로 나누어 필요 휴게소 수 계산
       2. 폴리라인 위 누적 거리를 평균 속도로 시간 환산 → 이상적 휴게 좌표 추출
-      3. 각 이상적 좌표에서 후보 선택 (GH 또는 Haversine)
+      3. 각 이상적 좌표에서 후보 선택 (GH 또는 폴리라인 투영)
       4. 폴리라인 투영 거리 기준으로 ordered_nodes 사이 적절한 위치에 삽입
     """
     from app.services import graphhopper as gh_svc
@@ -422,9 +420,11 @@ async def plan_rest_stops_from_polyline_async(
             )
             deferred_rest: dict | None = None
             if not is_last_segment and last_rest_node is not None:
-                time_to_junction = _haversine_sec(
+                time_to_junction = await _drive_sec_between(
+                    seg_poly, seg_time,
                     last_rest_node.lat, last_rest_node.lon,
                     ordered_nodes[i + 1].lat, ordered_nodes[i + 1].lon,
+                    use_gh=use_gh, profile=profile,
                 )
                 if time_to_junction <= _DEFER_THRESH_SEC:
                     # 이 휴게소를 seg_result에서 제거하고 다음 구간으로 이월
@@ -458,15 +458,16 @@ async def plan_rest_stops_from_polyline_async(
                 if deferred_rest not in rest_candidates:
                     rest_candidates = [deferred_rest] + rest_candidates
             elif n_stops > 0:
-                # 마지막 휴게소 이후 다음 경유지/목적지까지 Haversine 시간으로 정확히 추정
                 last_rest = next(
                     (n for n in reversed(seg_result) if n.type == "rest_stop"),
                     None,
                 )
                 if last_rest:
-                    accumulated_drive = _haversine_sec(
+                    accumulated_drive = await _drive_sec_between(
+                        seg_poly, seg_time,
                         last_rest.lat, last_rest.lon,
                         junction.lat, junction.lon,
+                        use_gh=use_gh, profile=profile,
                     )
                 else:
                     accumulated_drive = 0
@@ -494,10 +495,7 @@ async def plan_rest_stops_from_polyline_async(
     if len(polyline) < 2:
         return list(ordered_nodes)
 
-    seg_dists: list[float] = [
-        _haversine_m(polyline[i][0], polyline[i][1], polyline[i + 1][0], polyline[i + 1][1])
-        for i in range(len(polyline) - 1)
-    ]
+    seg_dists: list[float] = _seg_dists_m(polyline)
     total_dist_m = sum(seg_dists)
     if total_dist_m == 0 or route_time_sec == 0:
         return list(ordered_nodes)
@@ -590,8 +588,8 @@ async def plan_rest_stops_from_polyline_async(
                         prev_node, nxt_node, base,
                         profile=profile, shortlist=shortlist,
                     )
-            if best is None:
-                best = _pick_rest_haversine(base, target_proj_m, _get_proj)
+            elif not use_gh:
+                best = _pick_rest_by_polyline(base, target_proj_m, _get_proj)
 
         if best:
             used_coords.add((best["latitude"], best["longitude"]))

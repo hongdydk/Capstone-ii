@@ -24,7 +24,7 @@ from app.services.rest_stop_inserter import (
     _angle_diff,
     _bearing,
     _direction_bearing,
-    _haversine_sec,
+    _haversine_m,
     plan_rest_stops_from_polyline_async,
 )
 
@@ -128,7 +128,7 @@ async def _build_route_alternative(
     #    휴게소 삽입 여부와 무관하게 hint_polyline을 그대로 사용합니다.
     #    GH로 휴게소 좌표를 재탐색하면 IC 루프(고속도로 이탈)가 발생하므로
     #    표시용 폴리라인은 hint_polyline을 유지합니다.
-    #    (Kakao 내비가 실제 진입로를 처리하므로 문제 없음)
+    #    (기사 앱 내비가 실제 진입로를 처리하므로 문제 없음)
     rest_count = sum(1 for n in final_route if n.type == "rest_stop")
     full_polyline = hint_polyline
     total_sec    = sum(time_matrix[i][i + 1] for i in range(len(ordered_nodes) - 1))
@@ -136,8 +136,7 @@ async def _build_route_alternative(
 
     total_dist_km = round(total_dist_m / 1000, 1)
 
-    # 4-a. 구간 소요시간 (legs)
-    #      휴게소 노드는 time_matrix에 없으므로 Haversine 추정값 사용
+    # 4-a. 구간 소요시간 (legs) — 휴게소 구간은 GraphHopper로 조회
     coord_to_idx = {
         (round(n.lat, 6), round(n.lon, 6)): i
         for i, n in enumerate(ordered_nodes)
@@ -150,7 +149,11 @@ async def _build_route_alternative(
         if ia is not None and ib is not None:
             t = time_matrix[ia][ib]
         else:
-            t = _haversine_sec(a.lat, a.lon, b.lat, b.lon)
+            t = await gh_svc.get_travel_time(
+                {"lat": a.lat, "lon": a.lon},
+                {"lat": b.lat, "lon": b.lon},
+                profile,
+            )
         legs.append(round(t / 60, 1))
 
     # 4-b. 휴게소별 대안 top-5
@@ -171,42 +174,38 @@ async def _build_route_alternative(
             continue
 
         travel_brg = _bearing(prev_n.lat, prev_n.lon, next_n.lat, next_n.lon)
-        direct_sec = _haversine_sec(prev_n.lat, prev_n.lon, next_n.lat, next_n.lon)
+        pn_geo = {"lat": prev_n.lat, "lon": prev_n.lon}
+        nn_geo = {"lat": next_n.lat, "lon": next_n.lon}
+        direct_sec = await gh_svc.get_travel_time(pn_geo, nn_geo, profile)
 
         # 타입 우선순위: truck_rest=0, highway_rest=1, 그 외(drowsy)=2
         _TYPE_PRIO = {"truck_rest": 0, "highway_rest": 1}
+        _OPTION_RADIUS_M = 80_000.0
 
-        def _detour_key(c: dict, pn: RouteNode = prev_n, nn: RouteNode = next_n,
-                        direct: float = direct_sec) -> tuple:
-            detour = (
-                _haversine_sec(pn.lat, pn.lon, c["latitude"], c["longitude"])
-                + _haversine_sec(c["latitude"], c["longitude"], nn.lat, nn.lon)
-                - direct
-            )
-            type_prio = _TYPE_PRIO.get(c.get("type", ""), 2)
-            return (type_prio, detour)
+        async def _detour_sec(c: dict) -> int:
+            via = {"lat": c["latitude"], "lon": c["longitude"]}
+            t1 = await gh_svc.get_travel_time(pn_geo, via, profile)
+            t2 = await gh_svc.get_travel_time(via, nn_geo, profile)
+            return t1 + t2 - direct_sec
 
         # 이미 route에 삽입된 휴게소는 제외 (중복 표시 방지) — 대안만 반환
         selected_key = (round(node.lat, 5), round(node.lon, 5))
 
-        # 반경 필터: 삽입된 휴게소 노드 기준 80km 이내 후보만 (동선 맞는 장소만 추천)
-        _OPTION_RADIUS_SEC = 80 * 1000 / 80 * 3.6  # ~3600초 ≈ 80km 직선
-        # 반대 차선 완전 제외: direction 정보 있으면 진행 방향과 90도 이상 차이나는 후보 제거
-        top3 = sorted(
-            [
-                c for c in nearby_rests
-                if c.get("is_active", True)
-                and (round(c["latitude"], 5), round(c["longitude"], 5)) != selected_key
-                # 현재 휴게소 위치 기준 반경 필터
-                and _haversine_sec(node.lat, node.lon, c["latitude"], c["longitude"]) <= _OPTION_RADIUS_SEC
-                # 반대 차선 완전 제외
-                and (
-                    _direction_bearing(c.get("direction")) is None
-                    or _angle_diff(travel_brg, _direction_bearing(c.get("direction"))) < 90
-                )
-            ],
-            key=_detour_key,
-        )[:3]
+        option_pool = [
+            c for c in nearby_rests
+            if c.get("is_active", True)
+            and (round(c["latitude"], 5), round(c["longitude"], 5)) != selected_key
+            and _haversine_m(node.lat, node.lon, c["latitude"], c["longitude"]) <= _OPTION_RADIUS_M
+            and (
+                _direction_bearing(c.get("direction")) is None
+                or _angle_diff(travel_brg, _direction_bearing(c.get("direction"))) < 90
+            )
+        ]
+        scored: list[tuple[tuple[int, int], dict]] = []
+        for c in option_pool:
+            detour = await _detour_sec(c)
+            scored.append(((_TYPE_PRIO.get(c.get("type", ""), 2), detour), c))
+        top3 = [c for _, c in sorted(scored, key=lambda x: x[0])[:3]]
         rest_stop_options.append([
             RestStopOption(
                 name=c["name"], lat=c["latitude"], lon=c["longitude"],
@@ -334,14 +333,9 @@ async def demo_nav_route(
 
     segment_times = None
     if len(nodes) > 2:
-        # 구간별 시간 추정: 전체 시간을 구간 Haversine 비율로 분배
-        from app.services.rest_stop_inserter import _haversine_sec
-        seg_hav = [
-            _haversine_sec(nodes[i].lat, nodes[i].lon, nodes[i+1].lat, nodes[i+1].lon)
-            for i in range(len(nodes) - 1)
-        ]
-        total_hav = sum(seg_hav) or 1
-        segment_times = [int(route_time_sec * s / total_hav) for s in seg_hav]
+        geo_nodes = [{"lat": n.lat, "lon": n.lon} for n in nodes]
+        seg_matrix, _ = await gh_svc.build_time_matrix(geo_nodes, profile=profile)
+        segment_times = [seg_matrix[i][i + 1] for i in range(len(nodes) - 1)]
 
     final_route = await plan_rest_stops_from_polyline_async(
         ordered,
@@ -420,29 +414,19 @@ class GeoResult(BaseModel):
 async def demo_geocode(q: str):
     """카카오 로컬 API 키워드 검색 → 좌표 반환 (API 키 서버 보관)."""
     from app.core.config import settings
+    from app.services import kakao as kakao_svc
+
     if not settings.KAKAO_API_KEY:
         raise HTTPException(status_code=503, detail="KAKAO_API_KEY 미설정")
 
-    import httpx
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.get(
-            "https://dapi.kakao.com/v2/local/search/keyword.json",
-            params={"query": q, "size": 8},
-            headers={"Authorization": f"KakaoAK {settings.KAKAO_API_KEY}"},
-        )
-    if resp.status_code != 200:
-        raise HTTPException(status_code=502, detail="Kakao API 오류")
+    try:
+        results = await kakao_svc.search_keyword(q)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Kakao API 오류") from exc
 
-    docs = resp.json().get("documents", [])
     return [
-        GeoResult(
-            name=d.get("place_name", ""),
-            address=d.get("road_address_name") or d.get("address_name", ""),
-            lat=float(d["y"]),
-            lon=float(d["x"]),
-        )
-        for d in docs
-        if d.get("x") and d.get("y")
+        GeoResult(name=r["name"], address=r["address"], lat=r["lat"], lon=r["lon"])
+        for r in results
     ]
 
 

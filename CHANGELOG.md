@@ -5,7 +5,7 @@
 
 ## 요약
 
-- 2026-06-10에 `PLAN.md` 전면 재작성(지입기사 콜 배차판·자체 내비·OSM 지도·내비 자료 계약·실시간 교통·공공 API 우선순위)과 README·SCHEMA·팀 역할 규칙 정렬이 반영되었습니다.
+- 2026-06-10에 `PLAN.md` 전면 재작성(지입기사 콜 배차판·자체 내비·OSM 지도·내비 자료 계약·실시간 교통·공공 API 우선순위)과 README·SCHEMA·팀 역할 규칙 정렬, `frontend_Test` 정적 목업 제거·다차량 dispatch API 정리·Kakao 지오코딩 전용 축소가 반영되었습니다.
 - 2026-06-02에 데이터 샘플/스크립트 추가와 관제 UX 개편이 집중 반영되었습니다.
 - `feat` 커밋으로 다차량 배차 계약(VRPTW/휴게 삽입 포함)과 목업 구조 이전이 진행되었습니다.
 - `docs` 커밋으로 README/PLAN/CHANGELOG와 API 계약 문서 동기화가 이뤄졌습니다.
@@ -15,6 +15,7 @@
 
 ## 최근 주요 변경
 
+- 2026-06-10 · [chore] · chore: frontend_Test 목업 제거 및 dispatch API·Kakao 라우팅 정리 (hongdydk)
 - 2026-06-10 · a104696 · [docs] · docs: PLAN 콜 배차·자체 내비·OSM 축 전면 정리 및 README·SCHEMA·팀 역할 정렬 (hongdydk)
 - 2026-06-02 · 3694dd3 · [docs] · docs: 문서 체계 통폐합 및 changelog 복원/가독성 개선 (hongdydk)
 - 2026-06-02 · 6ad2c5c · [feat] · feat: 관제 목업 UX 개편 및 라이트 테마 변형 추가 (hongdydk)
@@ -82,4 +83,5 @@
 - 2026-06-02 · d431c4b · [docs] · docs: README·CHANGELOG·PLAN 배차·데이터·API 계약 동기화 (hongdydk)
 - 2026-06-02 · 3694dd3 · [docs] · docs: 문서 체계 통폐합 및 changelog 복원/가독성 개선 (hongdydk)
 - 2026-06-02 · 6ad2c5c · [feat] · feat: 관제 목업 UX 개편 및 라이트 테마 변형 추가 (hongdydk)
+- 2026-06-10 · [chore] · chore: frontend_Test 목업 제거 및 dispatch API·Kakao 라우팅 정리 (hongdydk)
 - 2026-06-10 · a104696 · [docs] · docs: PLAN 콜 배차·자체 내비·OSM 축 전면 정리 및 README·SCHEMA·팀 역할 정렬 (hongdydk)

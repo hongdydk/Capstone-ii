@@ -1,15 +1,13 @@
 # RouteOn (루트온)
 
-화물 운행 경로를 최적화하고 법정 휴게 규정을 반영하는 백엔드 중심 프로젝트입니다.  
-현재 저장소는 **발표 직전 데모 기준**으로 문서를 최소화해 유지합니다.
+화물 운행 경로 최적화 백엔드와, **지입기사 콜 배차** 및 **기사 앱 자체 내비게이션** 개발을 목표로 하는 프로젝트입니다.  
+제품·기술 방향은 [PLAN.md](PLAN.md)를 기준으로 한다.
 
 ## 1) 현재 데모 범위
 
 - 단건 최적화: `POST /optimize/`
 - 운행 중 재탐색: `POST /optimize/replan`
 - DB 없는 데모: `POST /demo/route`
-- 다차량 배차 계산 응답: `POST /optimize/dispatch`  
-  (계산 응답 중심, 배차 결과 영속화는 후속 범위)
 
 ## 2) 빠른 실행 (로컬)
 
@@ -57,12 +55,14 @@ java -Xmx4g -jar graphhopper-web-11.0.jar server config.yml
 ## 5) 문서 역할
 
 - `README.md`: 개요, 실행, 데모 범위, 진입점
+- `PLAN.md`: 제품·기술 방향, 콜 배차·자체 내비 축, 미확정(TBD) 항목
 - `SCHEMA.md`: 데이터/API 계약 단일 출처
 - `DEPLOY.md`: 배포/운영 절차
 - `CHANGELOG.md`: 전체 커밋 히스토리
 
 ## 6) Roadmap (아주 짧게)
 
-- `POST /optimize/dispatch` 결과의 DB 영속화(DispatchGroup/Trip 연계)
-- 배차 결과 전달/운영 플로우 고도화
+- **콜 배차:** 관제에서 콜 생성 → 기사 앱 **콜 목록** 노출 → 수락/거절 → 배정·운행 (상세는 `PLAN.md`)
+- **자체 내비:** 기사 앱에서 `/optimize`·`replan`의 `route[]`·`polyline`으로 **OSM 기반** 지도·경로·턴-by-turn 안내 구현 (관제 웹도 OSM 기반 지도로 모니터링 전용)
+- 기존 최적화·`replan` API는 유지·연동 (세부 API 변경은 팀장 확정 후)
 

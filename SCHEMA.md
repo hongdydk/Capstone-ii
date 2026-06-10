@@ -76,7 +76,7 @@
 
 ### `trips`
 
-운행 건 1개를 표현합니다. 관리자가 경유 노드(`waypoints`)를 설정하고, 기사가 출발·도착을 정한 뒤 백엔드가 방문 순서·휴게소를 계산해 `optimized_route`에 저장합니다. (관제 웹: Kakao 지도 API, 기사 앱: Kakao 내비 SDK)
+운행 건 1개를 표현합니다. 관리자가 경유 노드(`waypoints`)를 설정하고, 기사가 출발·도착을 정한 뒤 백엔드가 방문 순서·휴게소를 계산해 `optimized_route`에 저장합니다. (관제 웹·기사 앱: **OSM 기반 지도** — 관제는 모니터링, 앱은 자체 내비게이션. 상세는 [PLAN.md](PLAN.md))
 
 | 컬럼 | 타입 | 제약 | 설명 |
 |---|---|---|---|
@@ -111,7 +111,7 @@
 ---
 ### `dispatch_groups` (차후 구현 예정 — VRP)
 
-> **용어:** 아래 표는 **도메인·DDL 목표**를 기술한다. 실제 `backend/seeds/init_tables.sql`·SQLAlchemy 모델과 컬럼이 다를 수 있으며, VRP 결과 → Trip·`dispatch_orders` 반영 파이프라인은 `README.md`의 Roadmap 범위를 따른다. `POST /optimize/dispatch` API는 이미 VRPTW **계산·응답**을 제공하며, 응답 계약은 차량별 `route[]` 순서와 `lat`/`lon` 중심이다. `polyline`은 있다면 선택 디버그 필드이며 DB 스키마 컬럼으로 다루지 않는다.
+> **용어:** 아래 표는 **도메인·DDL 목표**를 기술한다. 실제 `backend/seeds/init_tables.sql`·SQLAlchemy 모델과 컬럼이 다를 수 있으며, VRP 결과 → Trip·`dispatch_orders` 반영 파이프라인은 `README.md`의 Roadmap 범위를 따른다. 다차량 VRPTW API(`POST /optimize/dispatch`)는 후속 구현 예정이며, 응답 계약은 차량별 `route[]` 순서와 `lat`/`lon` 중심으로 정의한다. `polyline`은 있다면 선택 디버그 필드이며 DB 스키마 컬럼으로 다루지 않는다.
 
 다수 차량 배차 묶음입니다. 관리자가 배차 1건에 여러 기사/차량을 한번에 배정할 때 사용합니다.
 

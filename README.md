@@ -48,7 +48,7 @@ java -Xmx4g -jar graphhopper-web-11.0.jar server config.yml
 
 ## 4) 목업/테스트 경로
 
-- 관제 웹 목업: `frontend_Test/control_app_mockup_light.html`
+- 관제 웹: OSM 기반 지도·콜 배차 UI — 저장소·경로 `[TBD]` (기존 `frontend_Test/` 정적 목업은 제거됨)
 - 백엔드 소스: `backend/app/`
 - 최적화 핵심 로직: `backend/app/services/`
 

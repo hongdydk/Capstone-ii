@@ -35,3 +35,9 @@ You are the **Documentation steward** subagent for this repo (RouteOn).
 ## Boundaries
 
 - `.cursor/rules/team-roles.mdc`: 3인 담당에 맞게 문서 소유 구역을 구분; 웹/앱 구현 세부는 과하지 않게 **소비 API·계약** 위주.
+
+## 커밋·푸시와 CHANGELOG
+
+- 사용자가 **커밋·푸시**를 지시하면 **반드시 `CHANGELOG.md`도 같은 작업에 포함**하여 갱신한다.
+- 커밋 해시 반영·요약·날짜 형식은 저장소 `CHANGELOG.md`의 기존 관례(요약·최근 주요 변경·전체 커밋 이력)를 따른다.
+- **커밋만** 요청해도 CHANGELOG 갱신은 기본 포함이다. 푸시는 사용자가 명시한 경우에만 수행한다.

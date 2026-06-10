@@ -1,7 +1,10 @@
 import asyncio
+import logging
 import re as _re
 from dataclasses import dataclass, field
 from math import atan2, cos, degrees, radians, sin, sqrt
+
+logger = logging.getLogger(__name__)
 
 # 법정 상수 (변경 금지)
 REST_PLAN_SEC: int = 6_000    # 1시간 40분 — 선제적 휴게 삽입 임계값
@@ -139,6 +142,119 @@ def _seg_dists_m(polyline: list[list[float]]) -> list[float]:
         _haversine_m(polyline[i][0], polyline[i][1], polyline[i + 1][0], polyline[i + 1][1])
         for i in range(len(polyline) - 1)
     ]
+
+
+def _scaled_seg_dists_m(
+    polyline: list[list[float]],
+    route_dist_m: int | None,
+) -> list[float]:
+    """Haversine 구간 거리를 GH 총거리에 맞게 스케일. route_dist_m 없으면 raw Haversine."""
+    raw = _seg_dists_m(polyline)
+    raw_total = sum(raw)
+    if not route_dist_m or raw_total <= 0:
+        return raw
+    scale = route_dist_m / raw_total
+    return [d * scale for d in raw]
+
+
+def _effective_route_time_sec(
+    route_time_sec: int,
+    segment_times: list[int] | None,
+) -> int:
+    """route_time_sec와 segment_times 합이 크게 다르면 segment 합을 우선."""
+    if not segment_times:
+        return route_time_sec
+    seg_sum = sum(t for t in segment_times if t > 0)
+    if seg_sum <= 0:
+        return route_time_sec
+    delta = abs(seg_sum - route_time_sec)
+    if delta > max(60, int(route_time_sec * 0.05)):
+        logger.warning(
+            "route_time_sec (%s) != sum(segment_times) (%s); using segment sum",
+            route_time_sec,
+            seg_sum,
+        )
+        return seg_sum
+    return route_time_sec
+
+
+@dataclass
+class _RoutePolyMapper:
+    """폴리라인 위 시간→좌표·거리 매핑 (GH 프로파일 또는 스케일 폴백)."""
+
+    polyline: list[list[float]]
+    seg_dists: list[float]
+    total_dist_m: float
+    route_time_sec: int
+    _profile: object | None = None
+    _avg_speed_ms: float = 0.0
+
+    def dist_at_time(self, t_sec: float) -> float:
+        if self._profile is not None:
+            return self._profile.dist_at_time(t_sec)
+        return max(0.0, min(t_sec * self._avg_speed_ms, self.total_dist_m))
+
+    def time_at_dist(self, dist_m: float) -> float:
+        if self._profile is not None:
+            return self._profile.time_at_dist(dist_m)
+        if self._avg_speed_ms <= 0:
+            return 0.0
+        return max(0.0, min(dist_m / self._avg_speed_ms, float(self.route_time_sec)))
+
+    def point_at_time(self, t_sec: float) -> tuple[float, float, float]:
+        if self._profile is not None:
+            return self._profile.point_at_time(t_sec)
+        target = t_sec * self._avg_speed_ms
+        cum = 0.0
+        for i, d in enumerate(self.seg_dists):
+            if cum + d >= target:
+                ratio = (target - cum) / d if d > 0 else 0.0
+                lat = self.polyline[i][0] + ratio * (self.polyline[i + 1][0] - self.polyline[i][0])
+                lon = self.polyline[i][1] + ratio * (self.polyline[i + 1][1] - self.polyline[i][1])
+                brg = _bearing(
+                    self.polyline[i][0], self.polyline[i][1],
+                    self.polyline[i + 1][0], self.polyline[i + 1][1],
+                )
+                return lat, lon, brg
+            cum += d
+        brg = _bearing(
+            self.polyline[-2][0], self.polyline[-2][1],
+            self.polyline[-1][0], self.polyline[-1][1],
+        )
+        return self.polyline[-1][0], self.polyline[-1][1], brg
+
+
+def _build_route_poly_mapper(
+    polyline: list[list[float]],
+    route_time_sec: int,
+    *,
+    route_dist_m: int | None = None,
+    instructions: list[dict] | None = None,
+) -> _RoutePolyMapper | None:
+    if len(polyline) < 2 or route_time_sec <= 0:
+        return None
+
+    seg_dists = _scaled_seg_dists_m(polyline, route_dist_m)
+    total_dist_m = float(route_dist_m) if route_dist_m else sum(seg_dists)
+    if total_dist_m <= 0:
+        return None
+
+    profile = None
+    if instructions:
+        from app.services import graphhopper as gh_svc
+        profile = gh_svc.build_route_time_profile(
+            polyline, instructions, route_time_sec, int(total_dist_m),
+        )
+
+    avg_speed_ms = total_dist_m / route_time_sec
+    return _RoutePolyMapper(
+        polyline=polyline,
+        seg_dists=seg_dists,
+        total_dist_m=total_dist_m,
+        route_time_sec=route_time_sec,
+        _profile=profile,
+        _avg_speed_ms=avg_speed_ms,
+    )
 
 
 def _point_proj_on_polyline(
@@ -352,6 +468,8 @@ async def plan_rest_stops_from_polyline_async(
     is_emergency: bool = False,
     segment_times: list[int] | None = None,
     *,
+    route_dist_m: int | None = None,
+    instructions: list[dict] | None = None,
     profile: str = "truck",
     use_gh: bool = True,
 ) -> list[RouteNode]:
@@ -370,7 +488,7 @@ async def plan_rest_stops_from_polyline_async(
       3. 각 이상적 좌표에서 후보 선택 (GH 또는 폴리라인 투영)
       4. 폴리라인 투영 거리 기준으로 ordered_nodes 사이 적절한 위치에 삽입
     """
-    from app.services import graphhopper as gh_svc
+    route_time_sec = _effective_route_time_sec(route_time_sec, segment_times)
 
     # ── 경유지 구간 분리 처리 ─────────────────────────────────────────────────
     # 경유지(waypoint)에서 운전자가 멈추므로 구간별 독립 평가
@@ -406,6 +524,7 @@ async def plan_rest_stops_from_polyline_async(
                 is_emergency=is_emergency,
                 profile=profile,
                 use_gh=use_gh,
+                # 구간별 sub-polyline에는 GH instructions 없음 — Haversine 스케일 폴백
             )
 
             # ── 경유지 직전 휴게소 이월 처리 ─────────────────────────────────
@@ -491,36 +610,25 @@ async def plan_rest_stops_from_polyline_async(
     if initial_drive_sec + route_time_sec <= MAX_DRIVE_SEC:
         return list(ordered_nodes)
 
-    # 폴리라인 구간별 거리
     if len(polyline) < 2:
         return list(ordered_nodes)
 
-    seg_dists: list[float] = _seg_dists_m(polyline)
-    total_dist_m = sum(seg_dists)
-    if total_dist_m == 0 or route_time_sec == 0:
+    mapper = _build_route_poly_mapper(
+        polyline,
+        route_time_sec,
+        route_dist_m=route_dist_m,
+        instructions=instructions if use_gh else None,
+    )
+    if mapper is None:
         return list(ordered_nodes)
 
-    avg_speed_ms = total_dist_m / route_time_sec  # m/s
+    seg_dists = mapper.seg_dists
 
     def _poly_point(t_sec: float) -> tuple[float, float, float]:
-        """경로 시작 후 t_sec 초 지점의 (lat, lon, 방위각)."""
-        target = t_sec * avg_speed_ms
-        cum = 0.0
-        for i, d in enumerate(seg_dists):
-            if cum + d >= target:
-                ratio = (target - cum) / d if d > 0 else 0.0
-                lat = polyline[i][0] + ratio * (polyline[i + 1][0] - polyline[i][0])
-                lon = polyline[i][1] + ratio * (polyline[i + 1][1] - polyline[i][1])
-                brg = _bearing(polyline[i][0], polyline[i][1], polyline[i + 1][0], polyline[i + 1][1])
-                return lat, lon, brg
-            cum += d
-        brg = _bearing(polyline[-2][0], polyline[-2][1], polyline[-1][0], polyline[-1][1])
-        return polyline[-1][0], polyline[-1][1], brg
+        """경로 시작 후 t_sec 초 지점의 (lat, lon, 방위각) — GH 프로파일 또는 스케일 폴백."""
+        return mapper.point_at_time(t_sec)
 
     # ── 점-선분 수직투영 기반 폴리라인 위치 매핑 ─────────────────────────
-    # 좌표를 폴리라인에 투영하면 (누적거리 m, 폴리라인까지 수직거리 m) 가 나옴.
-    # 누적거리 → "휴게소가 경로의 어느 시점에 위치하는가" (시간 매핑용)
-    # 수직거리 → "휴게소가 도로에서 얼마나 떨어졌는가" (선택 페널티용)
     def _poly_proj(lat: float, lon: float) -> tuple[float, float]:
         cum = 0.0
         best_perp = float("inf")
@@ -562,7 +670,7 @@ async def plan_rest_stops_from_polyline_async(
         next_insert_sec = max(0.0, float(_legal_max - initial_drive_sec))
     while next_insert_sec < route_time_sec:
         _, _, travel_brg = _poly_point(next_insert_sec)
-        target_proj_m = next_insert_sec * avg_speed_ms
+        target_proj_m = mapper.dist_at_time(next_insert_sec)
         prev_node, nxt_node = _leg_for_proj(ordered_nodes, node_projs, target_proj_m)
 
         def _dir_ok(c: dict, brg: float = travel_brg) -> bool:
@@ -582,6 +690,7 @@ async def plan_rest_stops_from_polyline_async(
         best: dict | None = None
         if base:
             if use_gh:
+                from app.services import graphhopper as gh_svc
                 shortlist = _shortlist_by_polyline(base, target_proj_m, _get_proj)
                 if shortlist:
                     best = await gh_svc.find_best_rest_stop(
@@ -595,8 +704,8 @@ async def plan_rest_stops_from_polyline_async(
             used_coords.add((best["latitude"], best["longitude"]))
             actual_proj, _ = _get_proj(best)
             selected.append((actual_proj, best))
-            # 다음 삽입 기준점: 이번 휴게소의 실제 폴리라인 위치 + plan_threshold
-            next_insert_sec = actual_proj / avg_speed_ms + plan_threshold
+            # 다음 삽입 기준점: 이번 휴게소 실제 위치 이후 plan_threshold
+            next_insert_sec = mapper.time_at_dist(actual_proj) + plan_threshold
         else:
             next_insert_sec += plan_threshold
 

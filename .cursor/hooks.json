@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "hooks": {
+    "subagentStop": [
+      {
+        "command": "python .cursor/hooks/commit_prompt_on_stop.py",
+        "loop_limit": 1
+      }
+    ]
+  }
+}

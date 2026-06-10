@@ -1,8 +1,12 @@
 import asyncio
-from math import atan2, cos, radians, sin, sqrt
+import logging
+from dataclasses import dataclass
+from math import atan2, cos, degrees, radians, sin, sqrt
 
 import httpx
 from fastapi import HTTPException
+
+logger = logging.getLogger(__name__)
 
 GH_BASE = "http://localhost:8989"
 
@@ -75,6 +79,205 @@ async def build_time_matrix(
     return time_matrix, dist_matrix
 
 
+def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    R = 6_371_000.0
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+    a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
+    return 2 * R * atan2(sqrt(a), sqrt(1 - a))
+
+
+def _bearing(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    lat1r, lat2r = radians(lat1), radians(lat2)
+    dlonr = radians(lon2 - lon1)
+    x = sin(dlonr) * cos(lat2r)
+    y = cos(lat1r) * sin(lat2r) - sin(lat1r) * cos(lat2r) * cos(dlonr)
+    return (degrees(atan2(x, y)) + 360) % 360
+
+
+@dataclass(frozen=True)
+class _ProfileSegment:
+    t_start: float
+    t_end: float
+    d_start: float
+    d_end: float
+    start_idx: int
+    end_idx: int
+
+
+@dataclass
+class RouteTimeProfile:
+    """GH instructions 기반 누적 시간·거리 프로파일."""
+
+    polyline: list[list[float]]
+    segments: list[_ProfileSegment]
+    total_time_sec: float
+    total_dist_m: float
+
+    def dist_at_time(self, t_sec: float) -> float:
+        t = max(0.0, min(t_sec, self.total_time_sec))
+        for seg in self.segments:
+            if t <= seg.t_end or seg is self.segments[-1]:
+                dt = seg.t_end - seg.t_start
+                if dt <= 0:
+                    return seg.d_start
+                frac = (t - seg.t_start) / dt
+                return seg.d_start + frac * (seg.d_end - seg.d_start)
+        return self.total_dist_m
+
+    def time_at_dist(self, dist_m: float) -> float:
+        d = max(0.0, min(dist_m, self.total_dist_m))
+        for seg in self.segments:
+            if d <= seg.d_end or seg is self.segments[-1]:
+                dd = seg.d_end - seg.d_start
+                if dd <= 0:
+                    return seg.t_start
+                frac = (d - seg.d_start) / dd
+                return seg.t_start + frac * (seg.t_end - seg.t_start)
+        return self.total_time_sec
+
+    def point_at_time(self, t_sec: float) -> tuple[float, float, float]:
+        t = max(0.0, min(t_sec, self.total_time_sec))
+        for seg in self.segments:
+            if t <= seg.t_end or seg is self.segments[-1]:
+                dt = seg.t_end - seg.t_start
+                frac = 0.0 if dt <= 0 else (t - seg.t_start) / dt
+                return _point_along_polyline_indices(
+                    self.polyline, seg.start_idx, seg.end_idx, max(0.0, min(1.0, frac)),
+                )
+        return _point_along_polyline_indices(
+            self.polyline, 0, len(self.polyline) - 1, 1.0,
+        )
+
+
+def _point_along_polyline_indices(
+    polyline: list[list[float]],
+    start_idx: int,
+    end_idx: int,
+    frac: float,
+) -> tuple[float, float, float]:
+    i0 = max(0, min(start_idx, len(polyline) - 1))
+    i1 = max(0, min(end_idx, len(polyline) - 1))
+    if i0 > i1:
+        i0, i1 = i1, i0
+    if i0 == i1 or frac <= 0.0:
+        if i0 + 1 < len(polyline):
+            brg = _bearing(polyline[i0][0], polyline[i0][1], polyline[i0 + 1][0], polyline[i0 + 1][1])
+        elif i0 > 0:
+            brg = _bearing(polyline[i0 - 1][0], polyline[i0 - 1][1], polyline[i0][0], polyline[i0][1])
+        else:
+            brg = 0.0
+        return polyline[i0][0], polyline[i0][1], brg
+    if frac >= 1.0:
+        if i1 > 0:
+            brg = _bearing(polyline[i1 - 1][0], polyline[i1 - 1][1], polyline[i1][0], polyline[i1][1])
+        elif i1 + 1 < len(polyline):
+            brg = _bearing(polyline[i1][0], polyline[i1][1], polyline[i1 + 1][0], polyline[i1 + 1][1])
+        else:
+            brg = 0.0
+        return polyline[i1][0], polyline[i1][1], brg
+
+    sub = polyline[i0 : i1 + 1]
+    seg_dists = [
+        _haversine_m(sub[i][0], sub[i][1], sub[i + 1][0], sub[i + 1][1])
+        for i in range(len(sub) - 1)
+    ]
+    total_m = sum(seg_dists)
+    if total_m <= 0:
+        lat = sub[0][0] + frac * (sub[-1][0] - sub[0][0])
+        lon = sub[0][1] + frac * (sub[-1][1] - sub[0][1])
+        brg = _bearing(sub[0][0], sub[0][1], sub[-1][0], sub[-1][1])
+        return lat, lon, brg
+
+    target = frac * total_m
+    cum = 0.0
+    for i, d in enumerate(seg_dists):
+        if cum + d >= target:
+            ratio = (target - cum) / d if d > 0 else 0.0
+            lat = sub[i][0] + ratio * (sub[i + 1][0] - sub[i][0])
+            lon = sub[i][1] + ratio * (sub[i + 1][1] - sub[i][1])
+            brg = _bearing(sub[i][0], sub[i][1], sub[i + 1][0], sub[i + 1][1])
+            return lat, lon, brg
+        cum += d
+    brg = _bearing(sub[-2][0], sub[-2][1], sub[-1][0], sub[-1][1])
+    return sub[-1][0], sub[-1][1], brg
+
+
+def build_route_time_profile(
+    polyline: list[list[float]],
+    instructions: list[dict] | None,
+    total_time_sec: int,
+    total_dist_m: int,
+) -> RouteTimeProfile | None:
+    """GH instructions → 누적 시간·거리 프로파일. instructions 없으면 None."""
+    if not instructions or len(polyline) < 2:
+        return None
+
+    segments: list[_ProfileSegment] = []
+    cum_t = 0.0
+    cum_d = 0.0
+    for ins in instructions:
+        t_sec = float(ins.get("time", 0)) / 1000.0
+        d_m = float(ins.get("distance", 0))
+        interval = ins.get("interval") or [0, 0]
+        start_idx = max(0, min(int(interval[0]), len(polyline) - 1))
+        end_idx = max(0, min(int(interval[1]), len(polyline) - 1))
+        segments.append(_ProfileSegment(
+            t_start=cum_t,
+            t_end=cum_t + t_sec,
+            d_start=cum_d,
+            d_end=cum_d + d_m,
+            start_idx=start_idx,
+            end_idx=end_idx,
+        ))
+        cum_t += t_sec
+        cum_d += d_m
+
+    if not segments:
+        return None
+
+    profile = RouteTimeProfile(
+        polyline=polyline,
+        segments=segments,
+        total_time_sec=float(total_time_sec),
+        total_dist_m=float(total_dist_m),
+    )
+
+    inst_t = segments[-1].t_end
+    if inst_t > 0 and total_time_sec > 0 and abs(inst_t - total_time_sec) > max(1.0, total_time_sec * 0.02):
+        scale = total_time_sec / inst_t
+        scaled: list[_ProfileSegment] = []
+        for seg in segments:
+            scaled.append(_ProfileSegment(
+                t_start=seg.t_start * scale,
+                t_end=seg.t_end * scale,
+                d_start=seg.d_start,
+                d_end=seg.d_end,
+                start_idx=seg.start_idx,
+                end_idx=seg.end_idx,
+            ))
+        profile.segments = scaled
+        profile.total_time_sec = float(total_time_sec)
+
+    inst_d = segments[-1].d_end
+    if inst_d > 0 and total_dist_m > 0 and abs(inst_d - total_dist_m) > max(1.0, total_dist_m * 0.02):
+        scale_d = total_dist_m / inst_d
+        rescaled: list[_ProfileSegment] = []
+        for seg in profile.segments:
+            rescaled.append(_ProfileSegment(
+                t_start=seg.t_start,
+                t_end=seg.t_end,
+                d_start=seg.d_start * scale_d,
+                d_end=seg.d_end * scale_d,
+                start_idx=seg.start_idx,
+                end_idx=seg.end_idx,
+            ))
+        profile.segments = rescaled
+        profile.total_dist_m = float(total_dist_m)
+
+    return profile
+
+
 async def get_route_geometry(
     nodes: list[dict],
     profile: str = "truck",
@@ -87,13 +290,19 @@ async def get_route_geometry(
 async def get_route_with_stats(
     nodes: list[dict],
     profile: str = "truck",
-) -> tuple[list[list[float]], int, int]:
+    *,
+    with_instructions: bool = False,
+) -> tuple[list[list[float]], int, int] | tuple[list[list[float]], int, int, list[dict]]:
     """노드 순서대로 경유하는 경로의 폴리라인·시간(초)·거리(m)를 반환합니다.
 
+    with_instructions=True 이면 GH instructions 목록을 4번째 값으로 반환합니다.
+
     Returns:
-        (polyline [[lat,lon],...], time_sec, dist_m)
+        (polyline [[lat,lon],...], time_sec, dist_m[, instructions])
     """
     params = [("profile", profile), ("points_encoded", "false"), ("type", "json")]
+    if with_instructions:
+        params.append(("instructions", "true"))
     for node in nodes:
         params.append(("point", f"{node['lat']},{node['lon']}"))
 
@@ -111,6 +320,8 @@ async def get_route_with_stats(
     polyline = [[c[1], c[0]] for c in path["points"]["coordinates"]]
     time_sec = int(path["time"] / 1000)
     dist_m = int(path["distance"])
+    if with_instructions:
+        return polyline, time_sec, dist_m, list(path.get("instructions") or [])
     return polyline, time_sec, dist_m
 
 

@@ -31,6 +31,13 @@ You are the **Engineer** subagent for this repo (RouteOn / route optimization). 
 - 동작 변경이 있으면 **관련 테스트**를 추가하거나 갱신한다.
 - RouteOn 계약 유지: `cargo_id` + `cargo_role` (`pickup` / `delivery`), replan `remaining_waypoints`, 결과 `route` 등.
 
+## Documentation
+
+- 동작·API·스키마 변경 시 **같은 작업**에서 관련 문서를 갱신한다.
+- `README.md` — API 요약·실행 방법; `SCHEMA.md` — 모델/SQL 변경; `DEPLOY.md` — GraphHopper·환경 변수·배포 경로.
+- `PLAN.md`는 팀장 확정·아키텍처 Handoff 후에만 반영한다. breaking API는 확정 전 문서에 단정하지 않는다.
+- 커밋·CHANGELOG·푸시는 User Rules와 개인 스킬 `repo-ship`·`commit-prompt`를 따른다. **한 작업 = 커밋 1회** — 소스 변경과 `CHANGELOG.md`를 같은 커밋에 포함하고, CHANGELOG 해시-only follow-up 커밋은 하지 않는다.
+
 ## Handoff from Architect
 
 - Architect의 **Decision handoff**·Goals·API 섹션을 구현 체크리스트로 쓴다.

@@ -115,12 +115,14 @@ async def _build_route_alternative(
     # 2. 폴리라인 기반 법정 휴게소 삽입
     #    경유지가 있으면 각 구간을 독립 평가 (경유지에서 누적 운전시간 리셋)
     segment_times = [time_matrix[i][i + 1] for i in range(len(ordered_nodes) - 1)]
+    route_dist_m = sum(dist_matrix[i][i + 1] for i in range(len(ordered_nodes) - 1))
     final_route = await plan_rest_stops_from_polyline_async(
         ordered_nodes,
         hint_polyline,
         route_time_sec,
         nearby_rests,
         segment_times=segment_times,
+        route_dist_m=route_dist_m or None,
         profile=profile,
     )
 
@@ -337,12 +339,15 @@ async def demo_nav_route(
         seg_matrix, _ = await gh_svc.build_time_matrix(geo_nodes, profile=profile)
         segment_times = [seg_matrix[i][i + 1] for i in range(len(nodes) - 1)]
 
+    route_dist_m = int(path.get("distance", 0))
     final_route = await plan_rest_stops_from_polyline_async(
         ordered,
         polyline,
         route_time_sec,
         nearby,
         segment_times=segment_times,
+        route_dist_m=route_dist_m or None,
+        instructions=list(path.get("instructions") or []),
         profile=profile,
     )
 

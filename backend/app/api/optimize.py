@@ -260,14 +260,20 @@ async def optimize(req: OptimizeRequest, db: AsyncSession = Depends(get_db)):
     # 폴리라인 기반 휴게소 삽입 (도로 형상 반영 + 반대차선 방지)
     geo_nodes_opt = [{"lat": n.lat, "lon": n.lon} for n in ordered_nodes]
     try:
-        polyline_opt, route_time_sec_opt, _ = await gh_svc.get_route_with_stats(
-            geo_nodes_opt, profile="truck"
+        polyline_opt, route_time_sec_opt, route_dist_m_opt, instructions_opt = (
+            await gh_svc.get_route_with_stats(
+                geo_nodes_opt, profile="truck", with_instructions=True,
+            )
         )
     except Exception:
         polyline_opt = []
         route_time_sec_opt = sum(
             final_matrix[i][i + 1] for i in range(len(ordered_nodes) - 1)
         )
+        route_dist_m_opt = sum(
+            final_dist[i][i + 1] for i in range(len(ordered_nodes) - 1)
+        )
+        instructions_opt = None
     nearby_opt = gh_svc.filter_rest_by_route(rest_candidates, polyline_opt) if polyline_opt else rest_candidates
     segment_times_opt = [final_matrix[i][i + 1] for i in range(len(ordered_nodes) - 1)]
     final_route = await plan_rest_stops_from_polyline_async(
@@ -277,6 +283,8 @@ async def optimize(req: OptimizeRequest, db: AsyncSession = Depends(get_db)):
         nearby_opt,
         initial_drive_sec=req.initial_drive_sec,
         segment_times=segment_times_opt,
+        route_dist_m=route_dist_m_opt if polyline_opt else None,
+        instructions=instructions_opt,
         profile="truck",
     )
 
@@ -437,14 +445,20 @@ async def replan(req: ReplanRequest, db: AsyncSession = Depends(get_db)):
     # 폴리라인 기반 휴게소 삽입 (Fix 1: 튜플 언패킹 제거, Fix 5: 정밀도 향상)
     geo_nodes_r = [{"lat": n.lat, "lon": n.lon} for n in ordered_nodes]
     try:
-        polyline_r, route_time_sec_r, _ = await gh_svc.get_route_with_stats(
-            geo_nodes_r, profile="truck"
+        polyline_r, route_time_sec_r, route_dist_m_r, instructions_r = (
+            await gh_svc.get_route_with_stats(
+                geo_nodes_r, profile="truck", with_instructions=True,
+            )
         )
     except Exception:
         polyline_r = []
         route_time_sec_r = sum(
             final_matrix[i][i + 1] for i in range(len(ordered_nodes) - 1)
         )
+        route_dist_m_r = sum(
+            final_dist[i][i + 1] for i in range(len(ordered_nodes) - 1)
+        )
+        instructions_r = None
     nearby_r = gh_svc.filter_rest_by_route(rest_stops_db, polyline_r) if polyline_r else rest_stops_db
     segment_times_r = [final_matrix[i][i + 1] for i in range(len(ordered_nodes) - 1)]
     final_route = await plan_rest_stops_from_polyline_async(
@@ -455,6 +469,8 @@ async def replan(req: ReplanRequest, db: AsyncSession = Depends(get_db)):
         initial_drive_sec=req.current_drive_sec,
         is_emergency=req.is_emergency,
         segment_times=segment_times_r,
+        route_dist_m=route_dist_m_r if polyline_r else None,
+        instructions=instructions_r,
         profile="truck",
     )
 

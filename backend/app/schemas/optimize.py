@@ -72,6 +72,10 @@ class OptimizeRequest(BaseModel):
     origin_lat: float
     origin_lon: float
     initial_drive_sec: int = 0
+    optimize_mode: Literal["basic", "with_rest"] = Field(
+        default="with_rest",
+        description="basic: 요청 순서 고정·휴게 삽입 생략. with_rest: TSP·법정 휴게 삽입(기본).",
+    )
     route_mode: Literal["local", "long_distance", "auto"] = "auto"
     reference_departure_at: str | None = Field(
         default=None,

@@ -57,8 +57,10 @@ java -Xmx4g -jar graphhopper-web-11.0.jar server config.yml
 - `README.md`: 개요, 실행, 데모 범위, 진입점
 - `PLAN.md`: 제품·기술 방향, 콜 배차·자체 내비 축, 미확정(TBD) 항목
 - `SCHEMA.md`: 데이터/API 계약 단일 출처
-- `DEPLOY.md`: 배포/운영 절차
+- `BUGREPORT.md`: 운영·알고리즘 이슈 백로그(P0–P3), 팀장 결정용 선택지·권장
 - `CHANGELOG.md`: 전체 커밋 히스토리
+
+운영 배포는 Oracle Cloud + Docker(컨테이너 네트워크) 기준이며, GraphHopper는 `Engine/` 이미지·`GH_BASE` 환경 변수로 연동한다. 백로그 요약은 `PLAN.md` §8, 상세는 [BUGREPORT.md](BUGREPORT.md).
 
 ## 6) Roadmap (아주 짧게)
 

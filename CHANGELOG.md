@@ -8,6 +8,10 @@
 
 ## 요약
 
+- 2026-06-11에 optimize 2단계: `route_pipeline` 모듈 분리, `POST /optimize/basic`·`/optimize/with-rest` 전용 엔드포인트 추가 (`POST /optimize/`는 `optimize_mode` 위임 유지).
+- 2026-06-11에 `POST /optimize/`에 optional `optimize_mode` (`basic` \| `with_rest`, 기본 `with_rest`) 추가 — basic은 요청 순서 고정·휴게 삽입 생략, replan은 with_rest 유지.
+- 2026-06-11에 `BUGREPORT.md` 신설(운영·알고리즘 이슈 H1–H4·M1–M8·L1–L6, P0–P3)·`PLAN.md` §8 요약·링크 정리 및 README 문서 맵 반영.
+- 2026-06-11에 `DEPLOY.md` 제거(OCI Docker 배포 완료)·`PLAN.md` §8 운영 안정화·알고리즘 백로그(H1–H4, M1–M8, L1–L6) 추가 및 README 문서 맵 정리.
 - 2026-06-10에 GH `instructions` 기반 경로 시간·거리 프로파일로 법정 휴게 삽입 정밀도를 개선(P0: `graphhopper`·`rest_stop_inserter`·`optimize`/`demo` 연동)하고, subagentStop 커밋 제안 Hook·`commit-prompt` 스킬·에이전트(문서화 관리 제거·엔지니어·리뷰어 보강) 및 **단일 커밋+CHANGELOG 동시** 관례를 정리했습니다.
 - 2026-06-10에 `PLAN.md` 전면 재작성(지입기사 콜 배차판·자체 내비·OSM 지도·내비 자료 계약·실시간 교통·공공 API 우선순위)과 README·SCHEMA·팀 역할 규칙 정렬, `frontend_Test` 정적 목업 제거·다차량 dispatch API 정리·Kakao 지오코딩 전용 축소가 반영되었습니다.
 - `frontend_Test` 제거 후 README·`PLAN.md`·`.cursor/rules/team-roles.mdc`의 경로 참조를 관제 웹·앱 저장소 `[TBD]` 표기로 정리하고, 문서화 관리 에이전트에 커밋·푸시 시 `CHANGELOG.md` 동기화 지침을 추가했습니다.
@@ -20,6 +24,10 @@
 
 ## 최근 주요 변경
 
+- 2026-06-11 · [feat] · feat: `POST /optimize/` `optimize_mode` basic/with_rest (기본 with_rest, replan unchanged) (hongdydk)
+- 2026-06-11 · [fix] · fix: GH 행렬 실패 503 fail-fast(H1)·replan `optimized_route` DB 갱신·`route_version`(H4) (hongdydk)
+- 2026-06-11 · [docs] · docs: BUGREPORT.md 운영·알고리즘 백로그 신설 및 PLAN §8·README 문서 맵 정리 (hongdydk)
+- 2026-06-11 · [docs] · docs: DEPLOY.md 제거 및 PLAN 운영·알고리즘 백로그 §8 추가 (hongdydk)
 - 2026-06-10 · [feat] · feat: 휴게 삽입 GH instructions 프로파일(P0) 및 subagentStop 커밋 제안 Hook (hongdydk)
 - 2026-06-10 · 6863990 · [docs] · docs: frontend_Test 제거 후 문서 참조 정리 및 CHANGELOG·문서화 지침 (hongdydk)
 - 2026-06-10 · d46610c · [chore] · chore: frontend_Test 목업 제거 및 dispatch API·Kakao 라우팅 정리 (hongdydk)

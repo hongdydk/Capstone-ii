@@ -10,8 +10,12 @@ logger = logging.getLogger(__name__)
 
 GH_BASE = "http://localhost:8989"
 
-# 경로 탐색 실패 시 대체값 — 사실상 해당 경로를 TSP에서 제외
-_UNREACHABLE_SEC = 10_800_000
+_GH_UNAVAILABLE_DETAIL = (
+    "경로 서버(GraphHopper)에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요."
+)
+_GH_MATRIX_FAILURE_DETAIL = (
+    "GraphHopper 경로 행렬 계산에 실패했습니다. 잠시 후 다시 시도해 주세요."
+)
 
 # 구간 (lat,lon) 쌍 캐시 — 휴게소 GH 우회 비용 반복 호출 완화
 _route_cache: dict[tuple, tuple[int, int]] = {}
@@ -49,8 +53,19 @@ async def _call_route(
         resp.raise_for_status()
         path = resp.json()["paths"][0]
         result = (int(path["time"] / 1000), int(path["distance"]))
-    except Exception:
-        result = (_UNREACHABLE_SEC, 0)
+    except httpx.ConnectError as exc:
+        raise HTTPException(status_code=503, detail=_GH_UNAVAILABLE_DETAIL) from exc
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code >= 500:
+            raise HTTPException(
+                status_code=503,
+                detail="경로 서버(GraphHopper) 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+            ) from exc
+        raise HTTPException(status_code=503, detail=_GH_MATRIX_FAILURE_DETAIL) from exc
+    except (KeyError, IndexError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=_GH_MATRIX_FAILURE_DETAIL) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=_GH_MATRIX_FAILURE_DETAIL) from exc
     if len(_route_cache) < _ROUTE_CACHE_MAX:
         _route_cache[key] = result
     return result

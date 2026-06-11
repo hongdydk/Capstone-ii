@@ -338,6 +338,39 @@ restricted_zones (독립 — VRP 최적화 시 경로 제약)
 
 ---
 
+## `POST /optimize/` · `/optimize/basic` · `/optimize/with-rest`
+
+단일 차량 경로 최적화. 다차량 VRP·`POST /optimize/dispatch`는 본 절 범위 밖.
+
+| 엔드포인트 | 파이프라인 | `optimize_mode` |
+|---|---|---|
+| `POST /optimize/` | 요청 `optimize_mode`로 위임 (기본 `with_rest`) | 적용 |
+| `POST /optimize/basic` | basic — 요청 순서 고정·휴게 생략 | **무시** (basic 강제) |
+| `POST /optimize/with-rest` | with_rest — TSP + 법정 휴게 | **무시** (with_rest 강제) |
+
+요청 본문은 공통 `OptimizeRequest`. 구현: `backend/app/services/route_pipeline.py`.
+
+| 필드 | 타입 | 기본값 | 설명 |
+|---|---|---|---|
+| `optimize_mode` | `"basic"` \| `"with_rest"` | `"with_rest"` | 파이프라인 선택 (optional — 미지정 시 기존 동작과 동일) |
+| `initial_drive_sec` | int | `0` | 출발 전 누적 운전시간(초). `with_rest`에서 법정 휴게 판단에 사용 |
+| `extra_stops` | array | — | 경유·상하차·목적지 변경·휴게 희망지 등 |
+| `route_mode` | `"local"` \| `"long_distance"` \| `"auto"` | `"auto"` | GH 프로필 힌트 |
+
+### `optimize_mode` 파이프라인
+
+| 모드 | 용도 | 방문 순서 | 휴게 삽입 |
+|---|---|---|---|
+| **`basic`** | 단순 길찾기·내비 | 출발 → 경유지(**요청 순서 고정**) → 목적지. 경유 없으면 출발→목적지 | **생략** (`rest_stops_count` = 0) |
+| **`with_rest`** | 프로젝트 핵심 (기본) | OR-Tools TSP + 상·하차·시간창 제약 | **법정 휴게 삽입** (기존과 동일) |
+
+- GraphHopper N×N 행렬 실패 시 **503 fail-fast** (H1) — 두 모드 공통.
+- `POST /optimize/replan`은 **`with_rest` 계열**로 동작하며, 요청에 `optimize_mode` 필드는 없다.
+
+응답 `OptimizeResponse`: `trip_id`, `route[]`, `total_distance_km`, `estimated_duration_min`, `rest_stops_count`.
+
+---
+
 ## VRPTW — 시간창 제약 설계
 
 > **VRPTW (Vehicle Routing Problem with Time Windows)**  

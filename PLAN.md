@@ -148,6 +148,33 @@ sequenceDiagram
 |-----|------------------------|
 | `POST /optimize/` | 초기 방문 순서·`route[]`·`polyline` (배정 직전/직후 경로 산출) |
 | `POST /optimize/replan` | `remaining_waypoints`, 현재 위치 등 — 미완료 구간 재계산 |
+
+#### 3.4.1 `optimize_mode` (단건 최적화 1단계)
+
+동일 엔드포인트 `POST /optimize/`에 optional `optimize_mode` (`basic` \| `with_rest`, 기본 `with_rest`). **다차량 VRP는 범위 밖.**
+
+| 모드 | 용도 | 파이프라인 |
+|------|------|------------|
+| **`basic`** | 단순 길찾기·내비 | 출발→경유(요청 순서 고정)→목적, GH 행렬/경로, **휴게 삽입 생략** |
+| **`with_rest`** | 프로젝트 핵심 (기본) | TSP → GH → **법정 휴게 삽입** (기존과 동일) |
+
+- **`replan`**은 `with_rest` 계열 유지 — 요청에 mode 없음, TSP·휴게 삽입 그대로.
+- breaking 최소: 필드 optional + default `with_rest` → 기존 클라이언트 호환.
+
+#### 3.4.2 전용 엔드포인트·파이프라인 모듈 (2단계)
+
+내부 로직은 `backend/app/services/route_pipeline.py`로 분리. API 라우트는 얇은 wrapper.
+
+| 엔드포인트 | 파이프라인 | 비고 |
+|------------|------------|------|
+| `POST /optimize/basic` | `run_basic_optimize` | 요청 `optimize_mode` **무시**, basic 강제 |
+| `POST /optimize/with-rest` | `run_with_rest_optimize` | 요청 `optimize_mode` **무시**, with_rest 강제 |
+| `POST /optimize/` | `optimize_mode`로 위임 | 기본 `with_rest` — 1단계 호환 유지 |
+| `POST /optimize/replan` | `run_replan_with_rest` | with_rest 계열, 변경 최소 |
+
+- 공통 헬퍼: 노드 구성(`prepare_optimize_nodes`), GH 행렬, TSP 순서, 휴게 삽입, `optimized_route` DB 저장·`route_version`.
+- H1(503 fail-fast), H4(replan DB+route_version) 유지. 다차량 VRP 없음.
+
 | 위치 로그 | `[TBD]` 엔드포인트·주기 — [SCHEMA.md](SCHEMA.md) 및 기존 `location_logs` API와 정합 |
 
 - **클라이언트 계약의 중심은 `route[]` 순서와 좌표**; `polyline`은 경로 시각화·턴 매칭에 활용 (자체 내비 확장 시 역할 재정의 가능 — `[TBD]`, [README.md](README.md)와 교차 검증).
@@ -395,7 +422,40 @@ flowchart TB
 | [README.md](README.md) | 개요, 로컬 실행, 데모 API, 진입점 |
 | **본 문서 (`PLAN.md`)** | 제품 방향(콜·자체 내비), 마일스톤, `[TBD]` |
 | [SCHEMA.md](SCHEMA.md) | 데이터·API 계약 (**확정분** 단일 출처) |
-| [DEPLOY.md](DEPLOY.md) | 배포·GraphHopper·환경 변수 |
 | [docs/POST_TRIP_STATS_ERD.md](docs/POST_TRIP_STATS_ERD.md) | 운행 완료 후 통계 초안 (본 PLAN과 독립) |
+| [BUGREPORT.md](BUGREPORT.md) | 운영 안정화·알고리즘 이슈·결정 백로그 |
 
 구현은 확정된 `PLAN.md`·`SCHEMA.md`와 일치시킨다. 미확정 항목은 코드·문서에 **결정된 것처럼** 적지 않는다.
+
+---
+
+## 8. 운영 안정화·알고리즘 백로그
+
+**배포 맥락:** Oracle Cloud + Docker 배포 **완료**. FastAPI·PostgreSQL·GraphHopper는 컨테이너 네트워크로 연동하며, `replan`·관제·기사 앱 계약은 [SCHEMA.md](SCHEMA.md) 및 본 문서 §3.6·§5.2를 따른다.
+
+코드 분석에서 도출한 **잠재 이슈 18건**(H1–H4, M1–M8, L1–L6)은 팀장이 항목별 선택지를 검토·확정하는 백로그이다. **상세(문제·배포 영향·선택지·권장·breaking·선행·결정 질문)**는 [BUGREPORT.md](BUGREPORT.md)를 단일 출처로 한다.
+
+### 우선순위 요약
+
+| 티어 | ID | 제목 |
+|------|-----|------|
+| **P0** | H1 | GH N×N 행렬 실패 조용 처리 |
+| **P0** | H2 | polyline 실패 시 휴게 삽입 스킵 |
+| **P0** | H3 | 6000–7200초 단일 구간 휴게 갭 |
+| **P0** | H4 | replan 결과 DB 미반영 |
+| **P1** | M2 | replan 시간창 기준 |
+| **P1** | M3 | `current_drive_sec` 이중 출처 |
+| **P1** | M4 | `estimated_duration_min` 불일치 |
+| **P1** | L2 | `GH_BASE` localhost 하드코딩 |
+| **P2** | M1 | 차량 제원 GH 미반영 |
+| **P2** | M5 | replan 목적지 중복 |
+| **P2** | M6 | instructions 구간 분할 |
+| **P2** | M7 | 전국 휴게소 폴백 |
+| **P2** | M8 | cargo N:M 제약 |
+| **P3** | L1 | GH 구간 캐시 |
+| **P3** | L3 | N² 행렬 확장성 |
+| **P3** | L4 | 휴게 후보 없음 |
+| **P3** | L5 | `cargo_weight` 미사용 |
+| **P3** | L6 | `route[]` cargo 메타 누락 |
+
+**권장 결정 순서:** P0(H1 → H3 → H4 → H2) → P1(L2, M3, M2, M4) → P2 → P3. 전체 순서·의존 관계는 [BUGREPORT.md](BUGREPORT.md) 하단을 참고한다.

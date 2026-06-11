@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "CHANGE_ME_IN_PRODUCTION"
     DEBUG: bool = False
 
-    model_config = {"env_file": str(_ENV_FILE)}
+    model_config = {"env_file": str(_ENV_FILE), "extra": "ignore"}
 
 
 settings = Settings()

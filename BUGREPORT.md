@@ -20,7 +20,6 @@ Oracle Cloud + Docker 배포 환경에서 **운영 안정화**와 **알고리즘
 
 | 티어 | ID | 제목 |
 |------|-----|------|
-| **P0** | H2 | polyline 실패 시 휴게 삽입 스킵 |
 | **P0** | H3 | 6000–7200초 단일 구간 휴게 갭 |
 | **P1** | M2 | replan 시간창 기준 |
 | **P1** | M3 | `current_drive_sec` 이중 출처 |
@@ -40,46 +39,6 @@ Oracle Cloud + Docker 배포 환경에서 **운영 안정화**와 **알고리즘
 ---
 
 ## P0 — 배포 운영 즉시 리스크
-
-### H2 · polyline 실패 시 휴게 삽입 스킵
-
-| | |
-|---|---|
-| **ID** | H2 |
-| **제목** | polyline 실패 시 휴게 삽입 스킵 |
-| **우선순위** | P0 |
-
-**문제**  
-`optimize`·`replan`에서 `get_route_with_stats` 예외 시 `polyline=[]`로 폴백한다. `plan_rest_stops_from_polyline_async`는 polyline 없으면 조기 반환하거나 정밀 삽입을 건너뛰어 **법정 휴게가 누락**될 수 있다.
-
-**배포 영향 (OCI/Docker)**  
-GH 일시 장애·422 경로 오류 시 **휴게 없는 route[]**가 200으로 내려가 기사·관제가 법정 위반 경로를 그대로 사용할 수 있다.
-
-**관련 파일/위치**  
-`backend/app/api/optimize.py` — polyline 폴백, `plan_rest_stops_from_polyline_async` 호출  
-`backend/app/services/rest_stop_inserter.py` — `plan_rest_stops_from_polyline_async`  
-`backend/app/services/graphhopper.py` — `get_route_with_stats`
-
-**선택지**  
-- **A.** polyline 실패 시 **503/422** (휴게 필수 경로 거부)  
-- **B.** 행렬 기반 coarse 휴게 삽입 폴백 + `warnings`  
-- **C.** 현행(휴게 스킵, 200)
-
-**권장 (확정 아님)**  
-**A** 또는 **B** — 법정 휴게는 P0 제품 요구
-
-**breaking**  
-**N** (에러 코드 추가); **Y** 가능(B: 응답에 `warnings`·휴게 품질 필드)
-
-**선행 의존**  
-—
-
-**결정 필요**  
-polyline GH 실패 시 휴게 삽입 없이 200을 반환할 것인가?
-
-**상태:** `[ ]` 미결정
-
----
 
 ### H3 · 6000–7200초 단일 구간 휴게 갭
 
@@ -230,7 +189,7 @@ Docker 운영에서 관제 모니터링 ETA가 기사 앱·실제 도착과 다�
 **Y** 가능(필드 의미·추가)
 
 **선행 의존**  
-H2, H3 (휴게 삽입 정책 확정 후)
+H3 (휴게 삽입 정책 확정 후)
 
 **결정 필요**  
 `estimated_duration_min`에 휴게 체류 시간을 포함할 것인가?
@@ -251,7 +210,7 @@ H2, H3 (휴게 삽입 정책 확정 후)
 `graphhopper.GH_BASE = "http://localhost:8989"` 고정. Docker Compose에서 서비스명(`graphhopper:8989`)·OCI 내부 DNS로 바꾸려면 **코드 수정 또는 환경 변수 미지원**이 필요하다.
 
 **배포 영향 (OCI/Docker)**  
-컨테이너 네트워크에서 GH 호스트명이 `localhost`가 아니면 **전면 503** 또는 H2(휴게 polyline) 연쇄 실패가 난다. 현재 배포가 동작 중이라면 우회(네트워크 모드·sidecar)에 의존했을 수 있다.
+컨테이너 네트워크에서 GH 호스트명이 `localhost`가 아니면 **전면 503**이 난다. 현재 배포가 동작 중이라면 우회(네트워크 모드·sidecar)에 의존했을 수 있다.
 
 **관련 파일/위치**  
 `backend/app/services/graphhopper.py` — `GH_BASE`  
@@ -388,7 +347,7 @@ replan TSP 결과 조립 시 목적지 중복을 코드에서 제거할 것인�
 **N** (내부 정밀도); 운영 API 확장 시 **Y**
 
 **선행 의존**  
-H2
+—
 
 **결정 필요**  
 다구간 휴게 삽입 시 instructions를 구간 분할할 것인가, 휴게 후 GH 재호출할 것인가?
@@ -406,7 +365,7 @@ H2
 | **우선순위** | P2 |
 
 **문제**  
-`polyline`이 비어 있으면 `filter_rest_by_route`를 건너뛰고 **전국 active 휴게소 DB**를 후보로 쓴다(H2와 연동). 부적절한 원거리 휴게소 선택·성능 저하가 발생한다.
+`insert_rest_stops`에서 `polyline`이 비어 있으면 `filter_rest_by_route`를 건너뛰고 **전국 active 휴게소 DB**를 후보로 쓴다. H2-A 이후 geometry 실패는 503이므로 해당 경로는 진입하지 않으나, 방어 분기는 잔존한다.
 
 **배포 영향 (OCI/Docker)**  
 GH geometry 실패 시 **엉뚱한 휴게소**가 route[]에 들어갈 수 있다.
@@ -421,13 +380,13 @@ GH geometry 실패 시 **엉뚱한 휴게소**가 route[]에 들어갈 수 있�
 - **C.** 현행 전국 폴백
 
 **권장 (확정 아님)**  
-**B** — H2 정책과 함께
+**B**
 
 **breaking**  
 **N**
 
 **선행 의존**  
-H2
+—
 
 **결정 필요**  
 polyline 없을 때 휴게 후보를 전국 DB로 폴백할 것인가?
@@ -675,15 +634,14 @@ optimize/replan 응답 `route[]`에 `cargo_id`/`cargo_role`을 포함할 것인�
 P0부터 순차 확정하는 것을 권장합니다. 선행 의존이 있는 항목은 아래 순서 내에서 먼저 결정하세요.
 
 1. **H3** — 6000–7200초 휴게 갭 (법정 준수, L4 선행)
-2. **H2** — polyline 실패 시 휴게 정책 (M4·M6·M7 선행)
-3. **L2** — `GH_BASE` 환경 변수 (OCI 네트워크 안정)
-4. **M3** — `current_drive_sec` 권위
-5. **M2** — replan 시간창 기준
-6. **M4** — `estimated_duration_min` 의미 (H2·H3 이후)
-7. **M5** — replan 목적지 중복
-8. **M1** · **M8** — 차량 제원·cargo N:M (L5 선행)
-9. **M6** · **M7** — instructions·휴게 후보 폴백 (H2 이후)
-10. **L1** · **L3** · **L4** · **L5** · **L6** — 확장·문서·additive 필드
+2. **L2** — `GH_BASE` 환경 변수 (OCI 네트워크 안정)
+3. **M3** — `current_drive_sec` 권위
+4. **M2** — replan 시간창 기준
+5. **M4** — `estimated_duration_min` 의미 (H3 이후)
+6. **M5** — replan 목적지 중복
+7. **M1** · **M8** — 차량 제원·cargo N:M (L5 선행)
+8. **M6** · **M7** — instructions·휴게 후보 폴백
+9. **L1** · **L3** · **L4** · **L5** · **L6** — 확장·문서·additive 필드
 
 확정·구현완료 항목은 본 문서에서 제거하고, 구현·API 계약은 [SCHEMA.md](SCHEMA.md)·[CHANGELOG.md](CHANGELOG.md)에 반영합니다. 미결 항목은 `**상태:**` 줄을 갱신합니다.
 
@@ -693,7 +651,7 @@ P0부터 순차 확정하는 것을 권장합니다. 선행 의존이 있는 항
 
 - **구현·결정 반영 시** 해당 항목 `**상태:**` 줄을 갱신하고, 소스·테스트와 **같은 커밋 1회**에 포함한다.
 - **구현완료** 항목은 BUGREPORT에서 제거하고 이력은 [CHANGELOG.md](CHANGELOG.md)「요약」·「최근 주요 변경」·커밋 이력에만 남긴다. BUGREPORT-only 2번째 커밋은 하지 않는다.
-- 경로→이슈 힌트: `graphhopper.py`→H2(polyline)·L2, `rest_stop_inserter`→H2/H3, `replan`·`route_pipeline`→M2/M5, `config.py`(`GH_BASE`)→L2.
+- 경로→이슈 힌트: `graphhopper.py`→L2, `rest_stop_inserter`→H3, `replan`·`route_pipeline`→M2/M5, `config.py`(`GH_BASE`)→L2.
 - (선택) `git config core.hooksPath .githooks` 후 pre-commit이 staged 백엔드 변경 대비 `BUGREPORT.md` 누락을 **경고**한다 — [`.githooks/README`](.githooks/README).
 
 ---

@@ -31,8 +31,23 @@ description: >-
 
 1. `git log -1 --oneline`으로 **기준 커밋**(HEAD)을 확인한다.
 2. `git status -sb`와 `git diff --stat`(필요 시 `git diff --cached --stat`)를 실행한다.
-3. 결과를 읽기 쉬운 한국어 블록으로 정리한다 — 예: `📋 마지막 커밋 이후 변경`, 기준 해시·**파일 N개**·**+X/-Y줄**·수정/추가 경로 목록.
-4. **금지:** `커밋·푸시가 필요하면 알려 주세요` 등 사용자에게 커밋을 **요청하라고** 말하지 않는다. 규모만 사실로 보고한다.
-5. (선택) Source Control(`Ctrl+Shift+G`)·Review 안내는 diff가 있을 때만 한 줄.
+3. 요약은 **코드·설정 파일만** 집계한다 — `*.md`(CHANGELOG, BUGREPORT, PLAN 등)는 파일 목록·줄 수(+/-)에서 **제외**한다. (`git diff --stat` 전체를 그대로 붙이지 말고, md 경로는 필터링하거나 별도 집계하지 않는다.)
+4. 결과를 아래 **표 형식**으로 정리한다 — 요약 표 + 변경 경로 bullet. 파일이 10개를 넘으면 상위 10개 bullet + `… 외 N개`. **md만** 변경된 경우 followup·요약 블록은 생략한다.
+
+   ```
+   📋 **마지막 커밋 이후 변경** (`d2aa6ed`, md 제외)
+
+   | | |
+   |---|---|
+   | **파일** | 2 |
+   | **줄** | +110 / −20 |
+
+   - `backend/app/services/route_pipeline.py`
+   - `backend/tests/test_optimize_mode.py`
+   ```
+
+   (파일별 줄 수가 필요하면 `| 파일 | 변경 |` 표를 쓸 수 있음 — 예: `route_pipeline.py` | +50/−20. Hook `commit_prompt_on_stop.py`와 동일 규칙.)
+5. **금지:** `커밋·푸시가 필요하면 알려 주세요` 등 사용자에게 커밋을 **요청하라고** 말하지 않는다. 규모만 사실로 보고한다.
+6. (선택) Source Control(`Ctrl+Shift+G`)·Review 안내는 diff가 있을 때만 한 줄.
 
 Hook follow-up·작업 완료 응답 모두 위 형식을 따른다. 사용자가 명시적으로 커밋·푸시를 요청할 때만 `repo-ship`으로 진행한다. 승인 시 **커밋 1회**에 CHANGELOG·(해당 시) BUGREPORT를 함께 포함한다.

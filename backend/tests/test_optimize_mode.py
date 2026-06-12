@@ -88,7 +88,7 @@ def _make_trip(**kwargs) -> Trip:
 
 
 
-def _patch_gh(monkeypatch, matrix=None):
+def _patch_gh_matrix(monkeypatch, matrix=None):
 
     if matrix is None:
 
@@ -113,6 +113,28 @@ def _patch_gh(monkeypatch, matrix=None):
 
 
     monkeypatch.setattr(pipeline.gh_svc, "build_time_matrix", _fake_build_time_matrix)
+
+
+
+def _patch_gh_route_stats(monkeypatch, *, time_sec=900, dist_m=5000):
+
+    route_stats_called = False
+
+
+
+    async def _fake_get_route_with_stats(*args, **kwargs):
+
+        nonlocal route_stats_called
+
+        route_stats_called = True
+
+        return [[37.5, 127.0], [37.6, 127.1]], time_sec, dist_m
+
+
+
+    monkeypatch.setattr(pipeline.gh_svc, "get_route_with_stats", _fake_get_route_with_stats)
+
+    return lambda: route_stats_called
 
 
 
@@ -148,7 +170,23 @@ def test_basic_skips_rest_insertion(handler, monkeypatch):
 
     db.get = AsyncMock(return_value=trip)
 
-    _patch_gh(monkeypatch)
+    matrix_called = False
+
+
+
+    async def _fake_build_time_matrix(nodes, profile="truck"):
+
+        nonlocal matrix_called
+
+        matrix_called = True
+
+        raise AssertionError("basic must not call build_time_matrix")
+
+
+
+    monkeypatch.setattr(pipeline.gh_svc, "build_time_matrix", _fake_build_time_matrix)
+
+    route_stats_called = _patch_gh_route_stats(monkeypatch)
 
 
 
@@ -192,6 +230,10 @@ def test_basic_skips_rest_insertion(handler, monkeypatch):
 
 
 
+    assert matrix_called is False
+
+    assert route_stats_called()
+
     assert plan_rest_called is False
 
     assert resp.rest_stops_count == 0
@@ -201,6 +243,10 @@ def test_basic_skips_rest_insertion(handler, monkeypatch):
     waypoint_names = [n.name for n in resp.route if n.type == "waypoint"]
 
     assert waypoint_names == ["경유1", "경유2"]
+
+    assert resp.estimated_duration_min == round(900 / 60, 1)
+
+    assert resp.total_distance_km == round(5000 / 1000, 1)
 
 
 
@@ -216,7 +262,33 @@ def test_with_rest_calls_rest_insertion(handler, monkeypatch):
 
     db.get = AsyncMock(return_value=trip)
 
-    _patch_gh(monkeypatch)
+    matrix_called = False
+
+
+
+    async def _fake_build_time_matrix(nodes, profile="truck"):
+
+        nonlocal matrix_called
+
+        matrix_called = True
+
+        matrix = [
+
+            [0, 300, 600, 900],
+
+            [300, 0, 300, 600],
+
+            [600, 300, 0, 300],
+
+            [900, 600, 300, 0],
+
+        ]
+
+        return matrix, matrix
+
+
+
+    monkeypatch.setattr(pipeline.gh_svc, "build_time_matrix", _fake_build_time_matrix)
 
 
 
@@ -291,6 +363,8 @@ def test_with_rest_calls_rest_insertion(handler, monkeypatch):
     resp = asyncio.run(handler(req, db))
 
 
+
+    assert matrix_called is True
 
     assert plan_rest_called is True
 

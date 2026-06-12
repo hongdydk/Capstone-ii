@@ -213,6 +213,33 @@ def resolve_tsp_order(
     return tsp_order
 
 
+def _build_ordered_nodes_fixed_order(nodes: list[dict]) -> list[RouteNode]:
+    """출발→경유(요청 순)→목적 순서의 RouteNode 목록 (basic 파이프라인)."""
+    last = len(nodes) - 1
+    return [
+        RouteNode(
+            type="origin" if idx == 0 else (
+                "destination" if idx == last else "waypoint"
+            ),
+            name=n["name"],
+            lat=n["lat"],
+            lon=n["lon"],
+        )
+        for idx, n in enumerate(nodes)
+    ]
+
+
+async def fetch_route_stats_for_ordered_nodes(
+    ordered_nodes: list[RouteNode],
+) -> tuple[int, int, list[list[float]]]:
+    """GH route 1회로 시간(초)·거리(m)·polyline을 반환합니다 (실패 시 propagate)."""
+    geo_nodes = [{"lat": n.lat, "lon": n.lon} for n in ordered_nodes]
+    polyline, route_time_sec, route_dist_m = await gh_svc.get_route_with_stats(
+        geo_nodes, profile="truck",
+    )
+    return route_time_sec, route_dist_m, polyline
+
+
 def build_ordered_nodes_and_matrices(
     nodes: list[dict],
     tsp_order: list[int],
@@ -288,23 +315,13 @@ async def insert_rest_stops(
     initial_drive_sec: int = 0,
     is_emergency: bool = False,
 ) -> list[RouteNode]:
-    """폴리라인 기반 법정 휴게소 삽입."""
+    """폴리라인 기반 법정 휴게소 삽입 (geometry 실패 시 propagate)."""
     geo_nodes = [{"lat": n.lat, "lon": n.lon} for n in ordered_nodes]
-    try:
-        polyline, route_time_sec, route_dist_m, instructions = (
-            await gh_svc.get_route_with_stats(
-                geo_nodes, profile="truck", with_instructions=True,
-            )
+    polyline, route_time_sec, route_dist_m, instructions = (
+        await gh_svc.get_route_with_stats(
+            geo_nodes, profile="truck", with_instructions=True,
         )
-    except Exception:
-        polyline = []
-        route_time_sec = sum(
-            final_matrix[i][i + 1] for i in range(len(ordered_nodes) - 1)
-        )
-        route_dist_m = sum(
-            final_dist[i][i + 1] for i in range(len(ordered_nodes) - 1)
-        )
-        instructions = None
+    )
 
     nearby = (
         gh_svc.filter_rest_by_route(rest_candidates, polyline)
@@ -395,25 +412,12 @@ async def run_basic_optimize(
     except TimeWindowValidationError as exc:
         raise http_422_from_time_window(exc) from exc
 
-    time_matrix, dist_matrix = await gh_svc.build_time_matrix(
-        prepared.nodes, profile="truck",
+    ordered_nodes = _build_ordered_nodes_fixed_order(prepared.nodes)
+    total_sec, route_dist_m, _polyline = await fetch_route_stats_for_ordered_nodes(
+        ordered_nodes,
     )
-    tsp_order = resolve_tsp_order(
-        prepared.nodes, prepared.waypoints_raw, time_matrix, use_tsp=False,
-    )
-    ordered_nodes, final_matrix, final_dist = build_ordered_nodes_and_matrices(
-        prepared.nodes,
-        tsp_order,
-        prepared.dest_name,
-        prepared.dest_lat,
-        prepared.dest_lon,
-        time_matrix,
-        dist_matrix,
-    )
+    total_distance_km = round(route_dist_m / 1000, 1)
     final_route = ordered_nodes
-    total_sec, total_distance_km = compute_route_totals(
-        ordered_nodes, final_matrix, final_dist,
-    )
 
     rest_count = 0
     route_dicts = [n.to_dict() for n in final_route]
@@ -448,6 +452,7 @@ async def run_with_rest_optimize(
     except TimeWindowValidationError as exc:
         raise http_422_from_time_window(exc) from exc
 
+    # TSP 전용 — N² GH 행렬 (basic 파이프라인은 사용하지 않음)
     time_matrix, dist_matrix = await gh_svc.build_time_matrix(
         prepared.nodes, profile="truck",
     )
@@ -529,6 +534,7 @@ async def run_replan_with_rest(
     nodes += remaining_wps
     nodes.append({"name": dest_name, "lat": dest_lat, "lon": dest_lon})
 
+    # TSP 전용 — N² GH 행렬 (basic 파이프라인은 사용하지 않음)
     time_matrix, dist_matrix = await gh_svc.build_time_matrix(nodes, profile="truck")
 
     pickup_deliveries: list[tuple[int, int]] | None = None

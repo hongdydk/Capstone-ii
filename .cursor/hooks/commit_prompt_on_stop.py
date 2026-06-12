@@ -45,6 +45,14 @@ def _is_excluded(path: str) -> bool:
     return any(p.search(normalized) for p in EXCLUDE_PATTERNS)
 
 
+def _is_md_path(path: str) -> bool:
+    return path.lower().endswith(".md")
+
+
+def _non_md_entries(entries: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    return [(code, path) for code, path in entries if not _is_md_path(path)]
+
+
 def _emit_json(payload: dict) -> None:
     text = json.dumps(payload, ensure_ascii=False)
     sys.stdout.buffer.write(text.encode("utf-8"))
@@ -148,7 +156,7 @@ def _format_file_list(
     lines: list[str] = []
     seen: set[str] = set()
     for code, path in sorted(entries, key=lambda item: item[1]):
-        if path in seen:
+        if _is_md_path(path) or path in seen:
             continue
         seen.add(path)
         label = _status_label(code)
@@ -223,6 +231,13 @@ def _summarize_paths(paths: list[str], limit: int = 5) -> str:
     return ", ".join(head) + suffix
 
 
+def _short_head_hash(head_commit: str | None) -> str:
+    if not head_commit:
+        return "HEAD"
+    token = head_commit.strip().split()[0]
+    return token or "HEAD"
+
+
 def _should_prompt(
     entries: list[tuple[str, str]],
     total_added: int,
@@ -248,44 +263,52 @@ def _build_followup(
     excluded_count: int,
     *,
     head_commit: str | None = None,
+    all_entries: list[tuple[str, str]] | None = None,
 ) -> str:
-    paths = sorted({path for _, path in entries})
+    code_entries = _non_md_entries(entries)
+    paths = sorted({path for _, path in code_entries})
     top_by_delta = sorted(
         paths,
         key=lambda p: sum(numstat.get(p, (0, 0))),
         reverse=True,
     )
-    file_lines = _format_file_list(entries, numstat)
+    short_hash = _short_head_hash(head_commit)
 
-    head_line = f"기준: {head_commit}" if head_commit else "기준: HEAD"
     lines = [
-        f"📋 마지막 커밋 이후 변경 ({head_line})",
+        f"📋 **마지막 커밋 이후 변경** (`{short_hash}`, md 제외)",
         "",
-        *file_lines,
+        "| | |",
+        "|---|---|",
+        f"| **파일** | {len(paths)} |",
+        f"| **줄** | +{total_added} / −{total_deleted} |",
+        "",
     ]
 
+    display_paths = paths if len(paths) <= 10 else top_by_delta[:10]
+    for path in display_paths:
+        lines.append(f"- `{path}`")
+    if len(paths) > 10:
+        lines.append(f"- … 외 {len(paths) - 10}개")
+    lines.append("")
+
     if excluded_count:
+        lines.append(f"(제외됨 {excluded_count}개: __pycache__, .pyc 등)")
         lines.append("")
-        lines.append(f"  (제외됨 {excluded_count}개: __pycache__, .pyc 등)")
 
-    lines.extend(
-        [
-            "",
-            "서브에이전트 작업 후 저장소에 변경이 있습니다.",
-            f"- 파일 {len(paths)}개, +{total_added}/-{total_deleted}줄",
-            f"- 주요 경로: {_summarize_paths(top_by_delta)}",
-        ]
-    )
+    lines.append("서브에이전트 작업 후 저장소에 변경이 있습니다.")
+    if len(paths) > 10:
+        lines.append(f"- 주요 경로: {_summarize_paths(top_by_delta)}")
 
-    if _only_cursor_agents(entries):
+    if _only_cursor_agents(code_entries):
         lines.append("- 에이전트 설정만 변경됨")
 
-    backend_issue = _has_backend_issue_changes(entries)
+    issue_entries = all_entries if all_entries is not None else entries
+    backend_issue = _has_backend_issue_changes(issue_entries)
     if backend_issue:
         issue_hints = _bugreport_issue_hints(paths)
         if issue_hints:
             lines.append(f"- 관련 이슈 힌트: {', '.join(issue_hints)}")
-        if not _bugreport_modified(entries, numstat):
+        if not _bugreport_modified(issue_entries, numstat):
             lines.append(
                 "- BUGREPORT 상태 줄 확인: 백엔드 변경이 있으나 BUGREPORT.md 미수정"
             )
@@ -322,14 +345,15 @@ def main() -> int:
     )
     numstat = _merge_numstat(unstaged_numstat, staged_numstat)
 
+    code_entries = _non_md_entries(entries)
     total_added = 0
     total_deleted = 0
-    for _, path in entries:
+    for _, path in code_entries:
         added, deleted = numstat.get(path, (0, 0))
         total_added += added
         total_deleted += deleted
 
-    if not _should_prompt(entries, total_added, total_deleted):
+    if not _should_prompt(code_entries, total_added, total_deleted):
         _emit_json({})
         return 0
 
@@ -337,12 +361,13 @@ def main() -> int:
     head_commit = head_raw.strip().splitlines()[0] if head_raw and head_raw.strip() else None
 
     message = _build_followup(
-        entries,
+        code_entries,
         total_added,
         total_deleted,
         numstat,
         excluded_count,
         head_commit=head_commit,
+        all_entries=entries,
     )
     _emit_json({"followup_message": message})
     return 0

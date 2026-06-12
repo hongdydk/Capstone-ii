@@ -36,7 +36,7 @@ You are the **Engineer** subagent for this repo (RouteOn / route optimization). 
 - 동작·API·스키마 변경 시 **같은 작업**에서 관련 문서를 갱신한다.
 - `README.md` — API 요약·실행 방법; `SCHEMA.md` — 모델/SQL 변경; 운영 배포는 OCI Docker·`GH_BASE` 환경 변수(README·`PLAN.md` §8).
 - `PLAN.md`는 팀장 확정·아키텍처 Handoff 후에만 반영한다. breaking API는 확정 전 문서에 단정하지 않는다.
-- 커밋·CHANGELOG·푸시는 User Rules와 개인 스킬 `repo-ship`·`commit-prompt`를 따른다. **한 작업 = 커밋 1회** — 소스 변경과 `CHANGELOG.md`를 같은 커밋에 포함하고, CHANGELOG 해시-only follow-up 커밋은 하지 않는다.
+- 커밋·CHANGELOG·BUGREPORT·푸시는 User Rules와 개인 스킬 `repo-ship`·`commit-prompt`를 따른다. **한 작업 = 커밋 1회** — 소스 변경과 `CHANGELOG.md`를 같은 커밋에 포함하고, 백엔드·이슈 연관 구현·결정 시 `BUGREPORT.md` 해당 항목 `상태` 줄도 함께 갱신한다. CHANGELOG·BUGREPORT 문서-only follow-up 커밋은 하지 않는다.
 
 ## Handoff from Architect
 

@@ -22,7 +22,19 @@ IMPORTANT_UNTRACKED_PREFIXES = (
     "PLAN",
     "SCHEMA",
     "CHANGELOG",
+    "BUGREPORT",
 )
+
+# Path fragment → BUGREPORT issue ID hints (for follow-up messages).
+PATH_ISSUE_HINTS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"graphhopper\.py"), "H1"),
+    (re.compile(r"rest_stop_inserter"), "H2/H3"),
+    (re.compile(r"route_pipeline|replan"), "H4"),
+    (re.compile(r"optimize\.py"), "H1/H4"),
+    (re.compile(r"config\.py"), "L2"),
+)
+
+BUG_BACKEND_PREFIXES = ("backend/", "Engine/")
 
 MIN_LINE_DELTA = 20
 MIN_FILE_COUNT = 2
@@ -164,6 +176,45 @@ def _only_cursor_agents(entries: list[tuple[str, str]]) -> bool:
     )
 
 
+def _is_bugreport_path(path: str) -> bool:
+    base = path.rsplit("/", 1)[-1]
+    return base.upper() == "BUGREPORT.MD"
+
+
+def _has_backend_issue_changes(entries: list[tuple[str, str]]) -> bool:
+    for _, path in entries:
+        if path.startswith(BUG_BACKEND_PREFIXES):
+            return True
+        for pattern, _ in PATH_ISSUE_HINTS:
+            if pattern.search(path):
+                return True
+    return False
+
+
+def _bugreport_modified(
+    entries: list[tuple[str, str]],
+    numstat: dict[str, tuple[int, int]],
+) -> bool:
+    for code, path in entries:
+        if not _is_bugreport_path(path):
+            continue
+        added, deleted = numstat.get(path, (0, 0))
+        if added or deleted or "?" in code:
+            return True
+    return False
+
+
+def _bugreport_issue_hints(paths: list[str]) -> list[str]:
+    hints: list[str] = []
+    for path in paths:
+        basename = path.rsplit("/", 1)[-1]
+        for pattern, issue_id in PATH_ISSUE_HINTS:
+            if pattern.search(path):
+                hints.append(f"{basename}→{issue_id}")
+                break
+    return sorted(set(hints))
+
+
 def _summarize_paths(paths: list[str], limit: int = 5) -> str:
     if not paths:
         return "(경로 없음)"
@@ -195,6 +246,8 @@ def _build_followup(
     total_deleted: int,
     numstat: dict[str, tuple[int, int]],
     excluded_count: int,
+    *,
+    head_commit: str | None = None,
 ) -> str:
     paths = sorted({path for _, path in entries})
     top_by_delta = sorted(
@@ -204,8 +257,9 @@ def _build_followup(
     )
     file_lines = _format_file_list(entries, numstat)
 
+    head_line = f"기준: {head_commit}" if head_commit else "기준: HEAD"
     lines = [
-        "📋 워킹 트리 변경 요약",
+        f"📋 마지막 커밋 이후 변경 ({head_line})",
         "",
         *file_lines,
     ]
@@ -224,12 +278,21 @@ def _build_followup(
     )
 
     if _only_cursor_agents(entries):
-        lines.append(
-            "- 에이전트 설정만 변경됨 — 커밋에 포함할지 확인해 주세요."
-        )
+        lines.append("- 에이전트 설정만 변경됨")
+
+    backend_issue = _has_backend_issue_changes(entries)
+    if backend_issue:
+        issue_hints = _bugreport_issue_hints(paths)
+        if issue_hints:
+            lines.append(f"- 관련 이슈 힌트: {', '.join(issue_hints)}")
+        if not _bugreport_modified(entries, numstat):
+            lines.append(
+                "- BUGREPORT 상태 줄 확인: 백엔드 변경이 있으나 BUGREPORT.md 미수정"
+            )
 
     lines.append(
-        "커밋·CHANGELOG·푸시 할까요? (승인 시 커밋 1회에 CHANGELOG 포함 · 승인 전에는 커밋하지 않습니다)"
+        f"미커밋 — 파일 {len(paths)}개, +{total_added}/-{total_deleted}줄 "
+        f"(커밋 시 CHANGELOG·해당 시 BUGREPORT 동일 커밋 1회)"
     )
     return "\n".join(lines)
 
@@ -270,8 +333,16 @@ def main() -> int:
         _emit_json({})
         return 0
 
+    head_raw = _run_git(["log", "-1", "--oneline"], project_root)
+    head_commit = head_raw.strip().splitlines()[0] if head_raw and head_raw.strip() else None
+
     message = _build_followup(
-        entries, total_added, total_deleted, numstat, excluded_count
+        entries,
+        total_added,
+        total_deleted,
+        numstat,
+        excluded_count,
+        head_commit=head_commit,
     )
     _emit_json({"followup_message": message})
     return 0

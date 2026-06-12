@@ -1,0 +1,21 @@
+# Git hooks (optional)
+
+## BUGREPORT 동기화 경고
+
+`pre-commit`은 staged 백엔드·이슈 연관 파일이 있는데 `BUGREPORT.md`가 없으면 **경고만** 출력합니다(커밋은 차단하지 않음).
+
+### 설치
+
+저장소 루트에서:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+Windows PowerShell에서도 동일합니다. 해제: `git config --unset core.hooksPath`
+
+### 수동 실행
+
+```sh
+python scripts/check_bugreport_sync.py
+```

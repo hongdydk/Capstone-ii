@@ -173,7 +173,7 @@ sequenceDiagram
 | `POST /optimize/replan` | `run_replan_with_rest` | with_rest 계열, 변경 최소 |
 
 - 공통 헬퍼: 노드 구성(`prepare_optimize_nodes`), GH 행렬, TSP 순서, 휴게 삽입, `optimized_route` DB 저장·`route_version`.
-- H1(503 fail-fast), H4(replan DB+route_version) 유지. 다차량 VRP 없음.
+- GH 행렬 503 fail-fast·replan `optimized_route`/`route_version` 반영(eb7bd91, CHANGELOG). 다차량 VRP 없음.
 
 | 위치 로그 | `[TBD]` 엔드포인트·주기 — [SCHEMA.md](SCHEMA.md) 및 기존 `location_logs` API와 정합 |
 
@@ -433,16 +433,14 @@ flowchart TB
 
 **배포 맥락:** Oracle Cloud + Docker 배포 **완료**. FastAPI·PostgreSQL·GraphHopper는 컨테이너 네트워크로 연동하며, `replan`·관제·기사 앱 계약은 [SCHEMA.md](SCHEMA.md) 및 본 문서 §3.6·§5.2를 따른다.
 
-코드 분석에서 도출한 **잠재 이슈 18건**(H1–H4, M1–M8, L1–L6)은 팀장이 항목별 선택지를 검토·확정하는 백로그이다. **상세(문제·배포 영향·선택지·권장·breaking·선행·결정 질문)**는 [BUGREPORT.md](BUGREPORT.md)를 단일 출처로 한다.
+코드 분석에서 도출한 **잠재 이슈 16건**(H2–H3, M1–M8, L1–L6; H1·H4는 eb7bd91 구현 완료·[CHANGELOG.md](CHANGELOG.md) 이력)은 팀장이 항목별 선택지를 검토·확정하는 백로그이다. **상세(문제·배포 영향·선택지·권장·breaking·선행·결정 질문)**는 [BUGREPORT.md](BUGREPORT.md)를 단일 출처로 한다.
 
 ### 우선순위 요약
 
 | 티어 | ID | 제목 |
 |------|-----|------|
-| **P0** | H1 | GH N×N 행렬 실패 조용 처리 |
 | **P0** | H2 | polyline 실패 시 휴게 삽입 스킵 |
 | **P0** | H3 | 6000–7200초 단일 구간 휴게 갭 |
-| **P0** | H4 | replan 결과 DB 미반영 |
 | **P1** | M2 | replan 시간창 기준 |
 | **P1** | M3 | `current_drive_sec` 이중 출처 |
 | **P1** | M4 | `estimated_duration_min` 불일치 |
@@ -458,4 +456,4 @@ flowchart TB
 | **P3** | L5 | `cargo_weight` 미사용 |
 | **P3** | L6 | `route[]` cargo 메타 누락 |
 
-**권장 결정 순서:** P0(H1 → H3 → H4 → H2) → P1(L2, M3, M2, M4) → P2 → P3. 전체 순서·의존 관계는 [BUGREPORT.md](BUGREPORT.md) 하단을 참고한다.
+**권장 결정 순서:** P0(H3 → H2) → P1(L2, M3, M2, M4) → P2 → P3. 전체 순서·의존 관계는 [BUGREPORT.md](BUGREPORT.md) 하단을 참고한다. H1·H4는 eb7bd91 구현 완료·CHANGELOG 이력.

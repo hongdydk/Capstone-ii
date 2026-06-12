@@ -1,0 +1,4 @@
+#!/bin/sh
+# Non-blocking BUGREPORT.md sync reminder for staged backend changes.
+python scripts/check_bugreport_sync.py
+exit 0

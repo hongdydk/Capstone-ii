@@ -4,10 +4,13 @@
 정렬 기준은 날짜 오름차순(전체 이력)이며, 최근 주요 변경은 최신순으로 제공합니다.
 
 **커밋 관례:** 기능·수정과 `CHANGELOG` 갱신(요약·「최근 주요 변경」)은 **한 커밋에** 포함합니다.
+백엔드·이슈 연관 변경 시 `BUGREPORT.md` 해당 항목 `상태` 줄도 **같은 커밋에** 갱신합니다(CHANGELOG-only·BUGREPORT-only 2번째 커밋 금지).
 `CHANGELOG에 해시 반영` 전용 follow-up 커밋은 하지 않습니다. 「전체 커밋 이력」 해시는 푸시 후 또는 다음 커밋 때 맞춰도 됩니다.
 
 ## 요약
 
+- 2026-06-11에 H1(GH 행렬 503 fail-fast)·H4(replan `optimized_route`·`route_version`) 구현 완료(eb7bd91) 후 BUGREPORT 백로그에서 제거(16건 유지, 이력은 본 문서·커밋에만).
+- 2026-06-11에 BUGREPORT·CHANGELOG 동일 커밋 규칙, subagentStop Hook(마지막 커밋 이후 변경 규모·이슈 힌트), 선택적 .githooks pre-commit·scripts/check_bugreport_sync.py를 정리.
 - 2026-06-11에 optimize 2단계: `route_pipeline` 모듈 분리, `POST /optimize/basic`·`/optimize/with-rest` 전용 엔드포인트 추가 (`POST /optimize/`는 `optimize_mode` 위임 유지).
 - 2026-06-11에 `POST /optimize/`에 optional `optimize_mode` (`basic` \| `with_rest`, 기본 `with_rest`) 추가 — basic은 요청 순서 고정·휴게 삽입 생략, replan은 with_rest 유지.
 - 2026-06-11에 `BUGREPORT.md` 신설(운영·알고리즘 이슈 H1–H4·M1–M8·L1–L6, P0–P3)·`PLAN.md` §8 요약·링크 정리 및 README 문서 맵 반영.
@@ -24,6 +27,7 @@
 
 ## 최근 주요 변경
 
+- 2026-06-11 · [chore] · chore: BUGREPORT 동기화(commit-prompt·Hook·pre-commit 경고·check 스크립트), H1·H4 백로그 제거·PLAN 16건 (hongdydk)
 - 2026-06-11 · [feat] · feat: `POST /optimize/` `optimize_mode` basic/with_rest (기본 with_rest, replan unchanged) (hongdydk)
 - 2026-06-11 · [fix] · fix: GH 행렬 실패 503 fail-fast(H1)·replan `optimized_route` DB 갱신·`route_version`(H4) (hongdydk)
 - 2026-06-11 · [docs] · docs: BUGREPORT.md 운영·알고리즘 백로그 신설 및 PLAN §8·README 문서 맵 정리 (hongdydk)

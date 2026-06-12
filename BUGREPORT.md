@@ -13,16 +13,15 @@ Oracle Cloud + Docker 배포 환경에서 **운영 안정화**와 **알고리즘
 | `[ ]` 미결정 | 팀장 선택지 검토 전 |
 | `[x]` 확정 | 선택지·구현 방향 확정 |
 | `[~]` 진행 중 | 확정 후 구현·테스트 중 |
+| `[x]` 구현완료 | 확정·코드·테스트 반영 완료 (`**상태:**` 줄에 `[x] 구현완료` 표기) |
 | `[—]` 보류 | 수요·마일스톤에 따라 연기 |
 
 ## 우선순위 요약
 
 | 티어 | ID | 제목 |
 |------|-----|------|
-| **P0** | H1 | GH N×N 행렬 실패 조용 처리 |
 | **P0** | H2 | polyline 실패 시 휴게 삽입 스킵 |
 | **P0** | H3 | 6000–7200초 단일 구간 휴게 갭 |
-| **P0** | H4 | replan 결과 DB 미반영 |
 | **P1** | M2 | replan 시간창 기준 |
 | **P1** | M3 | `current_drive_sec` 이중 출처 |
 | **P1** | M4 | `estimated_duration_min` 불일치 |
@@ -41,45 +40,6 @@ Oracle Cloud + Docker 배포 환경에서 **운영 안정화**와 **알고리즘
 ---
 
 ## P0 — 배포 운영 즉시 리스크
-
-### H1 · GH N×N 행렬 실패 조용 처리
-
-| | |
-|---|---|
-| **ID** | H1 |
-| **제목** | GH N×N 행렬 실패 조용 처리 |
-| **우선순위** | P0 |
-
-**문제**  
-`graphhopper._call_route`가 예외 시 `_UNREACHABLE_SEC`(≈125일)을 반환하고, `build_time_matrix`는 실패를 로그·응답에 노출하지 않는다. TSP는 해당 쌍을 “도달 불가”로 처리하지만, 관제·앱은 정상 200 응답으로 잘못된 순서·시간을 받을 수 있다.
-
-**배포 영향 (OCI/Docker)**  
-OCI에서 GH 컨테이너 재시작·메모리 부족·네트워크 순단 시 **조용한 경로 붕괴**가 발생한다. Docker healthcheck만으로는 API 응답 품질을 막기 어렵다.
-
-**관련 파일/위치**  
-`backend/app/services/graphhopper.py` — `_call_route`, `build_time_matrix`, `_UNREACHABLE_SEC`  
-`backend/app/api/optimize.py` — `build_time_matrix` 호출
-
-**선택지**  
-- **A.** GH 연결·5xx 실패 시 전체 요청 **503** (fail-fast)  
-- **B.** 행렬 일부 실패 시 Haversine 폴백 + 응답 `warnings[]`  
-- **C.** 현행 유지 + 모니터링만
-
-**권장 (확정 아님)**  
-**A**(연결 실패) + **B**(개별 쌍 실패, 경고 필드) — 운영 가시화 우선
-
-**breaking**  
-**N** (경고 필드 추가 시 선택적; 503 전환은 클라이언트 재시도 처리 필요)
-
-**선행 의존**  
-—
-
-**결정 필요**  
-GH 행렬 일부 실패 시 전체 요청을 503으로 중단할 것인가, 폴백·경고로 200을 유지할 것인가?
-
-**상태:** `[x]` 결정: **A** · `[x]` 구현완료
-
----
 
 ### H2 · polyline 실패 시 휴게 삽입 스킵
 
@@ -112,7 +72,7 @@ GH 일시 장애·422 경로 오류 시 **휴게 없는 route[]**가 200으로 �
 **N** (에러 코드 추가); **Y** 가능(B: 응답에 `warnings`·휴게 품질 필드)
 
 **선행 의존**  
-H1 (GH 가시화와 정책 정합)
+—
 
 **결정 필요**  
 polyline GH 실패 시 휴게 삽입 없이 200을 반환할 것인가?
@@ -160,46 +120,6 @@ polyline GH 실패 시 휴게 삽입 없이 200을 반환할 것인가?
 
 ---
 
-### H4 · replan 결과 DB 미반영
-
-| | |
-|---|---|
-| **ID** | H4 |
-| **제목** | replan 결과 DB 미반영 |
-| **우선순위** | P0 |
-
-**문제**  
-`POST /optimize/`는 `trip.optimized_route` JSONB를 갱신·commit하지만, `POST /optimize/replan`은 **응답만 반환**하고 DB를 쓰지 않는다. 관제가 Trip 조회로 보면 **구 경로**, 앱은 replan 응답으로 **신 경로**를 쓰는 불일치가 생긴다.
-
-**배포 영향 (OCI/Docker)**  
-OCI 운영에서 관제 웹·Trip API·기사 앱이 **서로 다른 route 버전**을 볼 수 있다. M4·M5·§3.6.4 `route_version` 없이는 동기화 검증이 불가하다.
-
-**관련 파일/위치**  
-`backend/app/api/optimize.py` — `optimize` vs `replan` 핸들러  
-`backend/app/models/trip.py` — `optimized_route` JSONB  
-`backend/app/schemas/trip.py` — Trip 응답 스키마
-
-**선택지**  
-- **A.** replan 성공 시 `optimized_route` **항상 갱신** (+ `route_version` 증가)  
-- **B.** 갱신은 선택 플래그(`persist=true`)  
-- **C.** DB 미갱신 유지, 관제는 replan 응답만 별도 저장
-
-**권장 (확정 아님)**  
-**A** + `route_version` 필드(§3.6.4)
-
-**breaking**  
-**Y** 가능(`route_version`·Trip 스키마); DB 갱신 자체는 기존 필드 재사용
-
-**선행 의존**  
-—
-
-**결정 필요**  
-replan 성공 시 `trip.optimized_route`를 갱신할 것인가?
-
-**상태:** `[x]` 결정: **A** · `[x]` 구현완료
-
----
-
 ## P1 — replan·시간·관제 불일치
 
 ### M2 · replan 시간창 기준
@@ -232,7 +152,7 @@ replan은 `reference_departure_at`만 쓰고 `trip` 출발 시각은 `trip_depar
 **Y** 가능(시간창 해석 변경 시 422 패턴 변화)
 
 **선행 의존**  
-H4 (관제·DB 경로 일치)
+—
 
 **결정 필요**  
 replan의 시간창 기준시각은 `reference_departure_at`만 쓸 것인가, trip 출발 시각·경과 시간을 병합할 것인가?
@@ -331,7 +251,7 @@ H2, H3 (휴게 삽입 정책 확정 후)
 `graphhopper.GH_BASE = "http://localhost:8989"` 고정. Docker Compose에서 서비스명(`graphhopper:8989`)·OCI 내부 DNS로 바꾸려면 **코드 수정 또는 환경 변수 미지원**이 필요하다.
 
 **배포 영향 (OCI/Docker)**  
-컨테이너 네트워크에서 GH 호스트명이 `localhost`가 아니면 **전면 503** 또는 H1/H2 연쇄 실패가 난다. 현재 배포가 동작 중이라면 우회(네트워크 모드·sidecar)에 의존했을 수 있다.
+컨테이너 네트워크에서 GH 호스트명이 `localhost`가 아니면 **전면 503** 또는 H2(휴게 polyline) 연쇄 실패가 난다. 현재 배포가 동작 중이라면 우회(네트워크 모드·sidecar)에 의존했을 수 있다.
 
 **관련 파일/위치**  
 `backend/app/services/graphhopper.py` — `GH_BASE`  
@@ -428,7 +348,7 @@ replan route[] 끝에 목적지가 두 번 보이거나, 구간 시간·휴게 �
 **N** (응답 route[] 길이·순서 수정)
 
 **선행 의존**  
-H4
+—
 
 **결정 필요**  
 replan TSP 결과 조립 시 목적지 중복을 코드에서 제거할 것인가?
@@ -754,20 +674,27 @@ optimize/replan 응답 `route[]`에 `cargo_id`/`cargo_role`을 포함할 것인�
 
 P0부터 순차 확정하는 것을 권장합니다. 선행 의존이 있는 항목은 아래 순서 내에서 먼저 결정하세요.
 
-1. **H1** — GH 행렬 실패 가시화 (H2·M7·L2 연쇄 정책의 기준)
-2. **H3** — 6000–7200초 휴게 갭 (법정 준수, L4 선행)
-3. **H4** — replan DB 반영·`route_version` (M2·M5 선행)
-4. **H2** — polyline 실패 시 휴게 정책 (M4·M6·M7 선행)
-5. **L2** — `GH_BASE` 환경 변수 (OCI 네트워크 안정)
-6. **M3** — `current_drive_sec` 권위
-7. **M2** — replan 시간창 기준 (H4 이후)
-8. **M4** — `estimated_duration_min` 의미 (H2·H3 이후)
-9. **M5** — replan 목적지 중복 (H4 이후)
-10. **M1** · **M8** — 차량 제원·cargo N:M (L5 선행)
-11. **M6** · **M7** — instructions·휴게 후보 폴백 (H2 이후)
-12. **L1** · **L3** · **L4** · **L5** · **L6** — 확장·문서·additive 필드
+1. **H3** — 6000–7200초 휴게 갭 (법정 준수, L4 선행)
+2. **H2** — polyline 실패 시 휴게 정책 (M4·M6·M7 선행)
+3. **L2** — `GH_BASE` 환경 변수 (OCI 네트워크 안정)
+4. **M3** — `current_drive_sec` 권위
+5. **M2** — replan 시간창 기준
+6. **M4** — `estimated_duration_min` 의미 (H2·H3 이후)
+7. **M5** — replan 목적지 중복
+8. **M1** · **M8** — 차량 제원·cargo N:M (L5 선행)
+9. **M6** · **M7** — instructions·휴게 후보 폴백 (H2 이후)
+10. **L1** · **L3** · **L4** · **L5** · **L6** — 확장·문서·additive 필드
 
-확정된 항목은 본 문서 상태를 `[x]`로 갱신하고, 구현·API 계약은 [SCHEMA.md](SCHEMA.md)·[CHANGELOG.md](CHANGELOG.md)에 반영합니다.
+확정·구현완료 항목은 본 문서에서 제거하고, 구현·API 계약은 [SCHEMA.md](SCHEMA.md)·[CHANGELOG.md](CHANGELOG.md)에 반영합니다. 미결 항목은 `**상태:**` 줄을 갱신합니다.
+
+---
+
+## 문서 동기화
+
+- **구현·결정 반영 시** 해당 항목 `**상태:**` 줄을 갱신하고, 소스·테스트와 **같은 커밋 1회**에 포함한다.
+- **구현완료** 항목은 BUGREPORT에서 제거하고 이력은 [CHANGELOG.md](CHANGELOG.md)「요약」·「최근 주요 변경」·커밋 이력에만 남긴다. BUGREPORT-only 2번째 커밋은 하지 않는다.
+- 경로→이슈 힌트: `graphhopper.py`→H2(polyline)·L2, `rest_stop_inserter`→H2/H3, `replan`·`route_pipeline`→M2/M5, `config.py`(`GH_BASE`)→L2.
+- (선택) `git config core.hooksPath .githooks` 후 pre-commit이 staged 백엔드 변경 대비 `BUGREPORT.md` 누락을 **경고**한다 — [`.githooks/README`](.githooks/README).
 
 ---
 

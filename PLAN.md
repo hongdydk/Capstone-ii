@@ -420,6 +420,7 @@ flowchart TB
 | 문서 | 역할 |
 |------|------|
 | [README.md](README.md) | 개요, 로컬 실행, 데모 API, 진입점 |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | 백엔드 레이어·파이프라인·Trip/route 상태·리팩터 Phase |
 | **본 문서 (`PLAN.md`)** | 제품 방향(콜·자체 내비), 마일스톤, `[TBD]` |
 | [SCHEMA.md](SCHEMA.md) | 데이터·API 계약 (**확정분** 단일 출처) |
 | [docs/POST_TRIP_STATS_ERD.md](docs/POST_TRIP_STATS_ERD.md) | 운행 완료 후 통계 초안 (본 PLAN과 독립) |

@@ -9,6 +9,7 @@
 
 ## 요약
 
+- 2026-06-14에 `ARCHITECTURE.md` 신설(백엔드 레이어·파이프라인·상태·GH 정책·리팩터 로드맵) 및 Phase 1 `apply_route_to_trip` 단일 persist 통합.
 - 2026-06-12에 H2-A(with_rest·replan polyline GH 실패 시 503 fail-fast, `polyline=[]` 폴백 제거) 구현 후 BUGREPORT 백로그에서 제거(15건 유지, 이력은 본 문서·커밋에만).
 - 2026-06-11에 H1(GH 행렬 503 fail-fast)·H4(replan `optimized_route`·`route_version`) 구현 완료(eb7bd91) 후 BUGREPORT 백로그에서 제거(16건 유지, 이력은 본 문서·커밋에만).
 - 2026-06-11에 BUGREPORT·CHANGELOG 동일 커밋 규칙, subagentStop Hook(마지막 커밋 이후 변경 규모·이슈 힌트), 선택적 .githooks pre-commit·scripts/check_bugreport_sync.py를 정리.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -375,19 +376,30 @@ def build_optimize_response(
     )
 
 
-async def persist_replan(
+async def apply_route_to_trip(
     trip: Trip,
     trip_id: int,
     final_route: list[RouteNode],
     total_sec: int,
     total_distance_km: float,
     db: AsyncSession,
+    *,
+    event: Literal["optimize", "replan"],
+    origin_name: str | None = None,
+    origin_lat: float | None = None,
+    origin_lon: float | None = None,
 ) -> OptimizeResponse:
+    """경로 계산 결과를 Trip에 반영하고 DB에 커밋합니다 (optimize/replan 공통 persist)."""
     rest_count = sum(1 for n in final_route if n.type == "rest_stop")
     route_dicts = [n.to_dict() for n in final_route]
     trip.optimized_route = build_optimized_route_payload(
         route_dicts, total_sec, rest_count, trip.optimized_route,
     )
+    if event == "optimize":
+        trip.origin_name = origin_name
+        trip.origin_lat = origin_lat
+        trip.origin_lon = origin_lon
+        trip.status = TripStatus.in_progress
     await db.commit()
     return build_optimize_response(trip_id, final_route, total_sec, total_distance_km)
 
@@ -419,17 +431,18 @@ async def run_basic_optimize(
     total_distance_km = round(route_dist_m / 1000, 1)
     final_route = ordered_nodes
 
-    rest_count = 0
-    route_dicts = [n.to_dict() for n in final_route]
-    trip.optimized_route = build_optimized_route_payload(
-        route_dicts, total_sec, rest_count, trip.optimized_route,
+    return await apply_route_to_trip(
+        trip,
+        trip.id,
+        final_route,
+        total_sec,
+        total_distance_km,
+        db,
+        event="optimize",
+        origin_name=req.origin_name,
+        origin_lat=req.origin_lat,
+        origin_lon=req.origin_lon,
     )
-    trip.origin_name = req.origin_name
-    trip.origin_lat = req.origin_lat
-    trip.origin_lon = req.origin_lon
-    trip.status = TripStatus.in_progress
-    await db.commit()
-    return build_optimize_response(trip.id, final_route, total_sec, total_distance_km)
 
 
 async def run_with_rest_optimize(
@@ -481,17 +494,18 @@ async def run_with_rest_optimize(
         ordered_nodes, final_matrix, final_dist,
     )
 
-    rest_count = sum(1 for n in final_route if n.type == "rest_stop")
-    route_dicts = [n.to_dict() for n in final_route]
-    trip.optimized_route = build_optimized_route_payload(
-        route_dicts, total_sec, rest_count, trip.optimized_route,
+    return await apply_route_to_trip(
+        trip,
+        trip.id,
+        final_route,
+        total_sec,
+        total_distance_km,
+        db,
+        event="optimize",
+        origin_name=req.origin_name,
+        origin_lat=req.origin_lat,
+        origin_lon=req.origin_lon,
     )
-    trip.origin_name = req.origin_name
-    trip.origin_lat = req.origin_lat
-    trip.origin_lon = req.origin_lon
-    trip.status = TripStatus.in_progress
-    await db.commit()
-    return build_optimize_response(trip.id, final_route, total_sec, total_distance_km)
 
 
 async def run_replan_with_rest(
@@ -593,6 +607,12 @@ async def run_replan_with_rest(
         ordered_nodes, final_matrix, final_dist,
     )
 
-    return await persist_replan(
-        trip, req.trip_id, final_route, total_sec, total_distance_km, db,
+    return await apply_route_to_trip(
+        trip,
+        req.trip_id,
+        final_route,
+        total_sec,
+        total_distance_km,
+        db,
+        event="replan",
     )

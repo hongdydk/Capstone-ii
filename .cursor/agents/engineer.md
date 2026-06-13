@@ -33,10 +33,29 @@ You are the **Engineer** subagent for this repo (RouteOn / route optimization). 
 
 ## Documentation
 
+### 문서 맵
+
+| 문서 | 역할 |
+|------|------|
+| `README.md` | 개요·실행·API 요약·문서 맵 |
+| `ARCHITECTURE.md` | 레이어·파이프라인(basic/with_rest/replan)·상태 전이·GH 실패 정책·리팩터 Phase 1~3 |
+| `PLAN.md` | 제품·기술 방향·TBD·§8 BUGREPORT 링크 |
+| `SCHEMA.md` | API/DB 계약 단일 출처 |
+| `BUGREPORT.md` | 미결 이슈 백로그(P0~P3)·결정용; **완료(H1/H2/H4 등)는 CHANGELOG에만** |
+| `CHANGELOG.md` | 커밋 이력·완료된 fix 기록 |
+
+### 작업별 필독·갱신
+
+| 언제 | 필독 | 변경 시 갱신 |
+|------|------|--------------|
+| 구현·리팩터 시작 | **`ARCHITECTURE.md`**(구현 기준), `SCHEMA.md`, `BUGREPORT.md`(해당 이슈) | — |
+| 동작·API·스키마 변경 | 위 + 아키텍처 Handoff | 코드 + `CHANGELOG.md`; `BUGREPORT.md` `상태`; `ARCHITECTURE.md` Phase 체크 |
+| breaking·계약 | `SCHEMA.md` + `PLAN.md`(팀장 확정 후) | 동일 |
+
 - 동작·API·스키마 변경 시 **같은 작업**에서 관련 문서를 갱신한다.
-- `README.md` — API 요약·실행 방법; `SCHEMA.md` — 모델/SQL 변경; 운영 배포는 OCI Docker·`GH_BASE` 환경 변수(README·`PLAN.md` §8).
-- `PLAN.md`는 팀장 확정·아키텍처 Handoff 후에만 반영한다. breaking API는 확정 전 문서에 단정하지 않는다.
-- 커밋·CHANGELOG·BUGREPORT·푸시는 User Rules와 개인 스킬 `repo-ship`·`commit-prompt`를 따른다. **한 작업 = 커밋 1회** — 소스 변경과 `CHANGELOG.md`를 같은 커밋에 포함하고, 백엔드·이슈 연관 구현·결정 시 `BUGREPORT.md` 해당 항목 `상태` 줄도 함께 갱신한다. CHANGELOG·BUGREPORT 문서-only follow-up 커밋은 하지 않는다.
+- **`PLAN.md`**는 팀장 확정·아키텍처 Handoff 후에만 반영. breaking API는 확정 전 문서에 단정하지 않는다.
+- 운영 배포: OCI Docker·`GH_BASE` — `README.md`·`PLAN.md` §8.
+- 커밋·CHANGELOG·BUGREPORT·푸시는 User Rules와 스킬 `repo-ship`·`commit-prompt`를 따른다. **한 작업 = 커밋 1회** — 소스 변경과 `CHANGELOG.md`를 같은 커밋에 포함하고, 백엔드·이슈 연관 구현·결정 시 `BUGREPORT.md` 해당 항목 `상태` 줄도 함께 갱신한다. CHANGELOG·BUGREPORT 문서-only follow-up 커밋은 하지 않는다.
 
 ## Handoff from Architect
 

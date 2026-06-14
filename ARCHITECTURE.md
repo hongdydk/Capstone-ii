@@ -12,6 +12,7 @@
 4. [패턴](#4-패턴)
 5. [GraphHopper 실패 정책](#5-graphhopper-실패-정책)
 6. [리팩터링 로드맵](#6-리팩터링-로드맵)
+7. [문서 읽는 순서](#7-문서-읽는-순서)
 
 ---
 
@@ -20,7 +21,7 @@
 | 레이어 | 모듈 (코드) | 책임 |
 |--------|-------------|------|
 | **API** | `backend/app/api/optimize.py` | HTTP만 — Trip 로드, 요청 검증, 파이프라인 runner 위임. 비즈니스 로직 없음. |
-| **Application pipeline** | `backend/app/services/route_pipeline.py` | use case — `run_basic_optimize`, `run_with_rest_optimize`, `run_replan_with_rest` 및 단계별 헬퍼. |
+| **Application pipeline** | `backend/app/services/route_pipeline.py` | use case — `run_basic_optimize`, `run_with_rest_optimize`, `run_replan_with_rest`; `run_with_rest_core`, `prepare_*_nodes`, 단계별 헬퍼. |
 | **Domain / services** | `optimizer.py`, `rest_stop_inserter.py`, `time_windows.py` | TSP·제약 검증, 법정 휴게 삽입, 시간창 변환. DB·HTTP 비의존. |
 | **Infrastructure** | `graphhopper.py` | GraphHopper RouteEngine **어댑터** — 행렬·geometry·polyline. (Phase 3에서 명시적 인터페이스 추출 예정) |
 
@@ -58,28 +59,31 @@
 | 1 | `resolve_reference_departure_at` | 출발 기준 시각 | — |
 | 2 | `prepare_optimize_nodes` | 노드·휴게 희망지 구성 | — |
 | 3 | `normalize_waypoints_time_windows` | 시간창 정규화 | — |
-| 4 | `gh_svc.build_time_matrix` | N×N 시간·거리 행렬 | matrix ✅ |
-| 5 | `resolve_tsp_order` (`use_tsp=True`) | OR-Tools TSP·제약 검증 | — |
-| 6 | `build_ordered_nodes_and_matrices` | TSP 순서 노드·재배열 행렬 | — |
-| 7 | `load_rest_candidates` | DB·희망 휴게소 후보 | — |
-| 8 | `insert_rest_stops` | polyline 기반 법정 휴게 삽입 | `get_route_with_stats` (geometry ✅) |
-| 9 | `compute_route_totals` | 총 시간·거리 | — |
-| 10 | `apply_route_to_trip` (`event=optimize`) | persist | — |
+| 4 | `load_rest_candidates` | DB·희망 휴게소 후보 | — |
+| 5 | `run_with_rest_core` | matrix → TSP → geometry → rest → totals | matrix ✅, geometry ✅ |
+| 6 | `apply_route_to_trip` (`event=optimize`) | persist | — |
 
 ### 2.3 replan
 
 **진입:** `POST /optimize/replan`  
 **Runner:** `run_replan_with_rest`
 
-with_rest와 **동일 GH 단계**(matrix → TSP → geometry → rest). 차이:
+with_rest와 **동일 GH 단계**(matrix → TSP → geometry → rest). 노드 구성은 `prepare_replan_nodes`, matrix 이후는 `run_with_rest_core` 단일 호출(§6 Phase 2).
+
+| 순서 | 단계 함수 | 설명 | GH 호출 |
+|------|-----------|------|---------|
+| 1 | `resolve_reference_departure_at` | 출발 기준 시각 (`trip_departure_time=None`) | — |
+| 2 | `prepare_replan_nodes` | 현재·잔여 경유·목적 노드 구성 | — |
+| 3 | `load_rest_candidates` | DB 휴게소 후보 | — |
+| 4 | `run_with_rest_core` | matrix → TSP → geometry → rest → totals | matrix ✅, geometry ✅ |
+| 5 | `apply_route_to_trip` (`event=replan`) | `optimized_route`·`route_version`만 갱신 | — |
 
 | 항목 | replan |
 |------|--------|
-| 노드 구성 | `current_*` + `remaining_waypoints` + `dest_*` (요청 본문) |
-| `prepare_optimize_nodes` | **미사용** — replan 전용 노드 빌드 인라인 |
-| `initial_drive_sec` | `req.current_drive_sec` |
-| `is_emergency` | `req.is_emergency` |
-| persist | `apply_route_to_trip` (`event=replan`) — `optimized_route`·`route_version`만 갱신, 출발지·status 유지 |
+| `prepare_optimize_nodes` | **미사용** |
+| `initial_drive_sec` | `req.current_drive_sec` → `run_with_rest_core(..., initial_drive_sec=…)` |
+| `is_emergency` | `req.is_emergency` → `run_with_rest_core(..., is_emergency=…)` |
+| persist | 출발지·status 유지 |
 
 ---
 
@@ -156,8 +160,10 @@ apply_route_to_trip(trip, trip_id, final_route, total_sec, total_distance_km, db
 | ID | 조건 | 동작 | 코드 위치 |
 |----|------|------|-----------|
 | **H1** | `build_time_matrix` 실패 (연결·5xx·파싱) | HTTP **503**, 폴백 없음 | `graphhopper._call_route`, `build_time_matrix` |
-| **H2-A** | with_rest / replan **geometry** (`get_route_with_stats` in `insert_rest_stops`) 실패 | HTTP **503**, 휴게 없이 200 금지 | `insert_rest_stops` → GH propagate |
+| **H2-A** ✅ | with_rest / replan **geometry** (`get_route_with_stats` in `insert_rest_stops`·`fetch_route_stats_for_ordered_nodes`) 실패 | HTTP **503**, 휴게 없이 200 금지 | `graphhopper.get_route_with_stats` propagate |
 | **basic** | `fetch_route_stats_for_ordered_nodes` route 실패 | HTTP **503** | `get_route_with_stats` propagate |
+
+**H2-A**는 2026-06-12 구현 완료 — [CHANGELOG.md](CHANGELOG.md), BUGREPORT 백로그에서 **제거됨**(잔존 cross-ref는 H3 등 방어 분기 설명만).
 
 클라이언트는 503 시 재시도·사용자 안내. 임의 좌표·Haversine 폴백은 사용하지 않는다.
 
@@ -176,19 +182,64 @@ apply_route_to_trip(trip, trip_id, final_route, total_sec, total_distance_km, db
 - [x] `persist_replan` 제거(흡수)
 - [x] `backend/tests/` 전체 통과
 
-**영향 파일:** `route_pipeline.py`, (문서) 본 파일, `README.md`, `PLAN.md`, `CHANGELOG.md`
+**영향 파일:** `route_pipeline.py`, (문서) 본 파일, `README.md`, `PLAN.md`, `CHANGELOG.md`  
+**완료 커밋 참고:** `0ff3435` (`apply_route_to_trip` 단일 persist)
 
-### Phase 2 — 파이프라인 단계 명시적 분리
+### Phase 2 — 파이프라인 단계 명시적 분리 ✅ 구현됨
 
-**목표:** runner 내부 인라인을 `prepare` → `matrix` → `tsp` → `geometry` → `rest` 오케스트레이션으로 정리; replan·with_rest 중복 TSP 블록 통합.
+**목표:** runner 내부 인라인·**copy-paste TSP 블록**을 제거하고, with_rest·replan이 **동일 core**만 parameter로 구분해 호출.
+
+**금지:** `run_with_rest_optimize`와 `run_replan_with_rest` 각각에 matrix→TSP→geometry→rest 블록을 **복붙**하는 것.
+
+#### `prepare_replan_nodes(req, reference)`
+
+replan 전용 노드 준비. `prepare_optimize_nodes(trip, req)`와 **대칭**이나 Trip·`extra_stops` 대신 ReplanRequest 필드만 사용.
+
+| 항목 | 내용 |
+|------|------|
+| **시그니처** | `prepare_replan_nodes(req: ReplanRequest, reference) -> PreparedReplanNodes` |
+| **호출 주체** | `run_replan_with_rest` — runner가 먼저 `resolve_reference_departure_at(req.reference_departure_at, trip_departure_time=None)`으로 `reference` 생성 |
+| **책임** | ① `remaining_waypoints`·`dest_*` 해석(미지정 시 마지막 경유지→목적지) ② `normalize_waypoints_time_windows(remaining_wps, reference)` ③ `nodes = [current] + remaining + [dest]` 구성 |
+| **반환** | `PreparedReplanNodes`: `nodes`, `waypoints_raw`, `dest_name`, `dest_lat`, `dest_lon` — 이후 `run_with_rest_core` 입력 |
+| **미포함** | GH 호출, TSP, 휴게 DB 조회, persist |
+
+#### `run_with_rest_core(...)`
+
+with_rest·replan **공통** matrix→TSP→geometry→rest→totals 오케스트레이션. runner는 노드 준비·휴게 후보 로드·persist만 담당.
+
+| 항목 | 내용 |
+|------|------|
+| **시그니처** | `async run_with_rest_core(nodes, waypoints_raw, dest_name, dest_lat, dest_lon, rest_candidates, *, initial_drive_sec=0, is_emergency=False) -> WithRestCoreResult` |
+| **입력** | `nodes`·`waypoints_raw`·`dest_*`는 `prepare_optimize_nodes` 또는 `prepare_replan_nodes` 반환값; `rest_candidates`는 runner가 `load_rest_candidates`로 조회 |
+| **replan 파라미터** | with_rest: `initial_drive_sec=req.initial_drive_sec`, `is_emergency=False` — replan: `initial_drive_sec=req.current_drive_sec`, `is_emergency=req.is_emergency` |
+
+**단계 순서** (`run_with_rest_core` 내부 — 순서 고정):
+
+| # | 단계 | 함수·GH | 산출 |
+|---|------|---------|------|
+| 1 | matrix | `build_time_matrix(nodes)` | `time_matrix`, `dist_matrix` |
+| 2 | tsp | `resolve_tsp_order(...)` | `tsp_order` |
+| 3 | geometry prep | `build_ordered_nodes_and_matrices(...)` | `ordered_nodes`, `final_matrix`, `final_dist` |
+| 4 | rest | `insert_rest_stops(..., initial_drive_sec, is_emergency)` | `final_route` (geometry=`get_route_with_stats` in rest) |
+| 5 | totals | `compute_route_totals(...)` | `total_sec`, `total_distance_km` |
+
+**runner 차이 (parameter만):**
+
+| | `run_with_rest_optimize` | `run_replan_with_rest` |
+|---|--------------------------|------------------------|
+| 노드 준비 | `prepare_optimize_nodes(trip, req)` | `prepare_replan_nodes(req, reference)` |
+| 휴게 후보 | `load_rest_candidates(db, preferred_rest)` | `load_rest_candidates(db)` |
+| core | `run_with_rest_core(..., initial_drive_sec=req.initial_drive_sec)` | `run_with_rest_core(..., initial_drive_sec=req.current_drive_sec, is_emergency=req.is_emergency)` |
+| persist | `apply_route_to_trip(..., event=optimize)` | `apply_route_to_trip(..., event=replan)` |
 
 **완료 조건:**
 
-- [ ] `run_with_rest_optimize` / `run_replan_with_rest`가 동일 `run_with_rest_core(...)` 또는 단계 리스트 호출
-- [ ] replan 전용 노드 빌드를 `prepare_replan_nodes` 등으로 추출
-- [ ] 기존 테스트 통과, API 응답 필드 불변
+- [x] `run_with_rest_optimize` / `run_replan_with_rest`가 동일 `run_with_rest_core(...)` 호출 (TSP 블록 **한 곳**)
+- [x] replan 인라인 노드 빌드를 `prepare_replan_nodes`로 추출
+- [x] 기존 테스트 통과, API 응답 필드 불변
 
-**영향 파일:** `route_pipeline.py`, `backend/tests/test_route_pipeline*.py`
+**영향 파일:** `route_pipeline.py`, `backend/tests/test_route_pipeline*.py`  
+**완료:** Phase 1(`0ff3435`) 직후 본 작업 커밋
 
 ### Phase 3 — GraphHopper adapter 인터페이스 (선택)
 
@@ -204,4 +255,18 @@ apply_route_to_trip(trip, trip_id, final_route, total_sec, total_distance_km, db
 
 ---
 
-*최종 갱신: Phase 1 (2026-06-14)*
+## 7. 문서 읽는 순서
+
+구현·리뷰·디버그 시 아래 순서를 권장한다.
+
+1. **[README.md](README.md)** — 실행·API 진입·문서 맵
+2. **본 파일 ([ARCHITECTURE.md](ARCHITECTURE.md))** — 레이어·파이프라인·상태·리팩터 Phase (**구현 기준**)
+3. **[SCHEMA.md](SCHEMA.md)** — 요청/응답·DB 계약 (**breaking 변경 단일 출처**)
+4. **[PLAN.md](PLAN.md)** — 제품·기술 방향·TBD
+5. **[BUGREPORT.md](BUGREPORT.md)** — 미결 이슈·결정용 (완료 H1/H2-A/H4 등은 CHANGELOG만)
+
+코드 변경은 **§6 Phase 순** — Phase 1(`0ff3435`) → Phase 2(본 절) 완료 후 Phase 3(선택).
+
+---
+
+*최종 갱신: 2026-06-14 — Phase 1(`0ff3435`), Phase 2 `prepare_replan_nodes`·`run_with_rest_core` 구현 완료*

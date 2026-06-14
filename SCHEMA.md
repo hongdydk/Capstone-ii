@@ -359,12 +359,12 @@ restricted_zones (독립 — VRP 최적화 시 경로 제약)
 
 ### `optimize_mode` 파이프라인
 
-| 모드 | 용도 | 방문 순서 | 휴게 삽입 |
-|---|---|---|---|
-| **`basic`** | 단순 길찾기·내비 | 출발 → 경유지(**요청 순서 고정**) → 목적지. 경유 없으면 출발→목적지 | **생략** (`rest_stops_count` = 0) |
-| **`with_rest`** | 프로젝트 핵심 (기본) | OR-Tools TSP + 상·하차·시간창 제약 | **법정 휴게 삽입** (기존과 동일) |
+| 모드 | 용도 | 방문 순서 | GH 호출 | 휴게 삽입 |
+|---|---|---|---|---|
+| **`basic`** | 단순 길찾기·내비 | 출발 → 경유지(**요청 순서 고정**) → 목적지. 경유 없으면 출발→목적지 | **행렬 없음**, `get_route_with_stats` **1회** | **생략** (`rest_stops_count` = 0) |
+| **`with_rest`** | 프로젝트 핵심 (기본) | OR-Tools TSP + 상·하차·시간창 제약 | N×N `build_time_matrix` + geometry(in rest) | **법정 휴게 삽입** (기존과 동일) |
 
-- GraphHopper N×N 행렬 실패 시 **503 fail-fast** (H1) — 두 모드 공통.
+- GraphHopper N×N 행렬 실패 시 **503 fail-fast** (H1) — **`with_rest`·replan** (basic은 행렬 미사용).
 - `POST /optimize/replan`은 **`with_rest` 계열**로 동작하며, 요청에 `optimize_mode` 필드는 없다.
 
 응답 `OptimizeResponse`: `trip_id`, `route[]`, `total_distance_km`, `estimated_duration_min`, `rest_stops_count`.

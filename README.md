@@ -54,6 +54,8 @@ java -Xmx4g -jar graphhopper-web-11.0.jar server config.yml
 
 ## 5) 문서 역할
 
+구현·리팩터는 **[ARCHITECTURE.md §6 Phase](ARCHITECTURE.md#6-리팩터링-로드맵)** 순서를 따른다.
+
 - `README.md`: 개요, 실행, 데모 범위, 진입점
 - `ARCHITECTURE.md`: 백엔드 레이어·최적화 파이프라인·상태 전이·리팩터 로드맵
 - `PLAN.md`: 제품·기술 방향, 콜 배차·자체 내비 축, 미확정(TBD) 항목

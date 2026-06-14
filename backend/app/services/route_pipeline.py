@@ -105,6 +105,22 @@ class PreparedOptimizeNodes:
     preferred_rest: list[dict]
 
 
+@dataclass
+class PreparedReplanNodes:
+    nodes: list[dict]
+    waypoints_raw: list[dict]
+    dest_name: str
+    dest_lat: float
+    dest_lon: float
+
+
+@dataclass
+class WithRestCoreResult:
+    final_route: list[RouteNode]
+    total_sec: int
+    total_distance_km: float
+
+
 def prepare_optimize_nodes(trip: Trip, req: OptimizeRequest) -> PreparedOptimizeNodes:
     """출발지·경유지·목적지 노드 목록과 휴게 희망지를 구성합니다."""
     waypoints_raw: list[dict] = list(trip.waypoints or [])
@@ -164,6 +180,85 @@ def prepare_optimize_nodes(trip: Trip, req: OptimizeRequest) -> PreparedOptimize
         dest_lat=dest_lat,
         dest_lon=dest_lon,
         preferred_rest=preferred_rest,
+    )
+
+
+def prepare_replan_nodes(req: ReplanRequest, reference) -> PreparedReplanNodes:
+    """현재 위치·잔여 경유지·목적지 노드 목록을 구성합니다 (replan 전용)."""
+    remaining_wps = list(req.remaining_waypoints)
+    dest_name = req.dest_name
+    dest_lat = req.dest_lat
+    dest_lon = req.dest_lon
+    if dest_name is None or dest_lat is None or dest_lon is None:
+        if not remaining_wps:
+            raise HTTPException(
+                status_code=400,
+                detail="dest 또는 remaining_waypoints를 1개 이상 지정해 주세요.",
+            )
+        last_wp = remaining_wps.pop()
+        dest_name = last_wp.get("name", "목적지")
+        dest_lat = float(last_wp["lat"])
+        dest_lon = float(last_wp["lon"])
+
+    normalize_waypoints_time_windows(remaining_wps, reference)
+
+    nodes: list[dict] = [
+        {"name": req.current_name, "lat": req.current_lat, "lon": req.current_lon}
+    ]
+    nodes += remaining_wps
+    nodes.append({"name": dest_name, "lat": dest_lat, "lon": dest_lon})
+
+    return PreparedReplanNodes(
+        nodes=nodes,
+        waypoints_raw=remaining_wps,
+        dest_name=dest_name,
+        dest_lat=dest_lat,
+        dest_lon=dest_lon,
+    )
+
+
+async def run_with_rest_core(
+    nodes: list[dict],
+    waypoints_raw: list[dict],
+    dest_name: str,
+    dest_lat: float,
+    dest_lon: float,
+    rest_candidates: list[dict],
+    *,
+    initial_drive_sec: int = 0,
+    is_emergency: bool = False,
+) -> WithRestCoreResult:
+    """matrix → TSP → geometry → rest 공통 오케스트레이션 (with_rest·replan)."""
+    time_matrix, dist_matrix = await gh_svc.build_time_matrix(
+        nodes, profile="truck",
+    )
+    tsp_order = resolve_tsp_order(
+        nodes, waypoints_raw, time_matrix, use_tsp=True,
+    )
+    ordered_nodes, final_matrix, final_dist = build_ordered_nodes_and_matrices(
+        nodes,
+        tsp_order,
+        dest_name,
+        dest_lat,
+        dest_lon,
+        time_matrix,
+        dist_matrix,
+    )
+    final_route = await insert_rest_stops(
+        ordered_nodes,
+        final_matrix,
+        final_dist,
+        rest_candidates,
+        initial_drive_sec=initial_drive_sec,
+        is_emergency=is_emergency,
+    )
+    total_sec, total_distance_km = compute_route_totals(
+        ordered_nodes, final_matrix, final_dist,
+    )
+    return WithRestCoreResult(
+        final_route=final_route,
+        total_sec=total_sec,
+        total_distance_km=total_distance_km,
     )
 
 
@@ -465,41 +560,23 @@ async def run_with_rest_optimize(
     except TimeWindowValidationError as exc:
         raise http_422_from_time_window(exc) from exc
 
-    # TSP 전용 — N² GH 행렬 (basic 파이프라인은 사용하지 않음)
-    time_matrix, dist_matrix = await gh_svc.build_time_matrix(
-        prepared.nodes, profile="truck",
-    )
-    tsp_order = resolve_tsp_order(
-        prepared.nodes, prepared.waypoints_raw, time_matrix, use_tsp=True,
-    )
-    ordered_nodes, final_matrix, final_dist = build_ordered_nodes_and_matrices(
+    rest_candidates = await load_rest_candidates(db, prepared.preferred_rest)
+    core = await run_with_rest_core(
         prepared.nodes,
-        tsp_order,
+        prepared.waypoints_raw,
         prepared.dest_name,
         prepared.dest_lat,
         prepared.dest_lon,
-        time_matrix,
-        dist_matrix,
-    )
-
-    rest_candidates = await load_rest_candidates(db, prepared.preferred_rest)
-    final_route = await insert_rest_stops(
-        ordered_nodes,
-        final_matrix,
-        final_dist,
         rest_candidates,
         initial_drive_sec=req.initial_drive_sec,
-    )
-    total_sec, total_distance_km = compute_route_totals(
-        ordered_nodes, final_matrix, final_dist,
     )
 
     return await apply_route_to_trip(
         trip,
         trip.id,
-        final_route,
-        total_sec,
-        total_distance_km,
+        core.final_route,
+        core.total_sec,
+        core.total_distance_km,
         db,
         event="optimize",
         origin_name=req.origin_name,
@@ -522,97 +599,29 @@ async def run_replan_with_rest(
     except TimeWindowValidationError as exc:
         raise http_422_from_time_window(exc) from exc
 
-    remaining_wps = list(req.remaining_waypoints)
-    dest_name = req.dest_name
-    dest_lat = req.dest_lat
-    dest_lon = req.dest_lon
-    if dest_name is None or dest_lat is None or dest_lon is None:
-        if not remaining_wps:
-            raise HTTPException(
-                status_code=400,
-                detail="dest 또는 remaining_waypoints를 1개 이상 지정해 주세요.",
-            )
-        last_wp = remaining_wps.pop()
-        dest_name = last_wp.get("name", "목적지")
-        dest_lat = float(last_wp["lat"])
-        dest_lon = float(last_wp["lon"])
-
     try:
-        normalize_waypoints_time_windows(remaining_wps, reference)
+        prepared = prepare_replan_nodes(req, reference)
     except TimeWindowValidationError as exc:
         raise http_422_from_time_window(exc) from exc
 
-    nodes: list[dict] = [
-        {"name": req.current_name, "lat": req.current_lat, "lon": req.current_lon}
-    ]
-    nodes += remaining_wps
-    nodes.append({"name": dest_name, "lat": dest_lat, "lon": dest_lon})
-
-    # TSP 전용 — N² GH 행렬 (basic 파이프라인은 사용하지 않음)
-    time_matrix, dist_matrix = await gh_svc.build_time_matrix(nodes, profile="truck")
-
-    pickup_deliveries: list[tuple[int, int]] | None = None
-    pairs = build_cargo_pickup_deliveries(remaining_wps, start_index=1)
-    if pairs:
-        pickup_deliveries = pairs
-
-    time_windows: list[tuple[int, int]] | None = None
-    if any(
-        wp.get("earliest_sec") is not None or wp.get("latest_sec") is not None
-        for wp in remaining_wps
-    ):
-        time_windows = [(0, 0)]
-        for wp in remaining_wps:
-            e, l = wp.get("earliest_sec"), wp.get("latest_sec")
-            time_windows.append((e or 0, l or _INF))
-        time_windows.append((0, _INF))
-
-    node_names = [n["name"] for n in nodes]
-    violation = validate_tsp_constraints(
-        time_matrix, time_windows, pickup_deliveries, node_names,
-    )
-    if violation:
-        code, msg = violation
-        raise HTTPException(status_code=code, detail=msg)
-
-    tsp_order = solve_tsp(
-        time_matrix, time_windows=time_windows, pickup_deliveries=pickup_deliveries,
-    )
-    if tsp_order is None:
-        raise HTTPException(
-            status_code=422,
-            detail="경로 계산 실패: 복합 제약 충돌로 가능한 경로가 없습니다.",
-        )
-
-    ordered_nodes, final_matrix, final_dist = build_ordered_nodes_and_matrices(
-        nodes,
-        tsp_order,
-        dest_name,
-        dest_lat,
-        dest_lon,
-        time_matrix,
-        dist_matrix,
-    )
-
     rest_candidates = await load_rest_candidates(db)
-    final_route = await insert_rest_stops(
-        ordered_nodes,
-        final_matrix,
-        final_dist,
+    core = await run_with_rest_core(
+        prepared.nodes,
+        prepared.waypoints_raw,
+        prepared.dest_name,
+        prepared.dest_lat,
+        prepared.dest_lon,
         rest_candidates,
         initial_drive_sec=req.current_drive_sec,
         is_emergency=req.is_emergency,
-    )
-    total_sec, total_distance_km = compute_route_totals(
-        ordered_nodes, final_matrix, final_dist,
     )
 
     return await apply_route_to_trip(
         trip,
         req.trip_id,
-        final_route,
-        total_sec,
-        total_distance_km,
+        core.final_route,
+        core.total_sec,
+        core.total_distance_km,
         db,
         event="replan",
     )

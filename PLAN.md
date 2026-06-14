@@ -155,7 +155,7 @@ sequenceDiagram
 
 | 모드 | 용도 | 파이프라인 |
 |------|------|------------|
-| **`basic`** | 단순 길찾기·내비 | 출발→경유(요청 순서 고정)→목적, GH 행렬/경로, **휴게 삽입 생략** |
+| **`basic`** | 단순 길찾기·내비 | 출발→경유(요청 순서 고정)→목적, **N² matrix ❌**, `get_route_with_stats` **1회**, 휴게 삽입 생략 |
 | **`with_rest`** | 프로젝트 핵심 (기본) | TSP → GH → **법정 휴게 삽입** (기존과 동일) |
 
 - **`replan`**은 `with_rest` 계열 유지 — 요청에 mode 없음, TSP·휴게 삽입 그대로.
@@ -163,7 +163,7 @@ sequenceDiagram
 
 #### 3.4.2 전용 엔드포인트·파이프라인 모듈 (2단계)
 
-내부 로직은 `backend/app/services/route_pipeline.py`로 분리. API 라우트는 얇은 wrapper.
+내부 로직은 [`backend/app/services/route_pipeline.py`](backend/app/services/route_pipeline.py)로 분리. 단계·core 추출은 [ARCHITECTURE.md §6 Phase 2](ARCHITECTURE.md#phase-2--파이프라인-단계-명시적-분리--구현됨). API 라우트는 얇은 wrapper.
 
 | 엔드포인트 | 파이프라인 | 비고 |
 |------------|------------|------|
@@ -172,7 +172,7 @@ sequenceDiagram
 | `POST /optimize/` | `optimize_mode`로 위임 | 기본 `with_rest` — 1단계 호환 유지 |
 | `POST /optimize/replan` | `run_replan_with_rest` | with_rest 계열, 변경 최소 |
 
-- 공통 헬퍼: 노드 구성(`prepare_optimize_nodes`), GH 행렬, TSP 순서, 휴게 삽입, `optimized_route` DB 저장·`route_version`.
+- 공통 헬퍼: 노드 구성(`prepare_optimize_nodes`, `prepare_replan_nodes`), `run_with_rest_core`, GH 행렬, TSP 순서, 휴게 삽입, `optimized_route` DB 저장·`route_version`.
 - GH 행렬 503 fail-fast·replan `optimized_route`/`route_version` 반영(eb7bd91, CHANGELOG). 다차량 VRP 없음.
 
 | 위치 로그 | `[TBD]` 엔드포인트·주기 — [SCHEMA.md](SCHEMA.md) 및 기존 `location_logs` API와 정합 |

@@ -324,17 +324,26 @@ async def get_route_with_stats(
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.get(f"{GH_BASE}/route", params=params)
-    except httpx.ConnectError:
-        raise HTTPException(status_code=503, detail="경로 서버(GraphHopper)에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.")
+    except httpx.ConnectError as exc:
+        raise HTTPException(status_code=503, detail=_GH_UNAVAILABLE_DETAIL) from exc
     if resp.status_code == 400:
         msg = resp.json().get("message", "경로를 찾을 수 없습니다.")
         raise HTTPException(status_code=422, detail=f"GraphHopper: {msg}")
-    resp.raise_for_status()
-
-    path = resp.json()["paths"][0]
-    polyline = [[c[1], c[0]] for c in path["points"]["coordinates"]]
-    time_sec = int(path["time"] / 1000)
-    dist_m = int(path["distance"])
+    try:
+        resp.raise_for_status()
+        path = resp.json()["paths"][0]
+        polyline = [[c[1], c[0]] for c in path["points"]["coordinates"]]
+        time_sec = int(path["time"] / 1000)
+        dist_m = int(path["distance"])
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code >= 500:
+            raise HTTPException(
+                status_code=503,
+                detail="경로 서버(GraphHopper) 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+            ) from exc
+        raise HTTPException(status_code=503, detail=_GH_MATRIX_FAILURE_DETAIL) from exc
+    except (KeyError, IndexError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=_GH_MATRIX_FAILURE_DETAIL) from exc
     if with_instructions:
         return polyline, time_sec, dist_m, list(path.get("instructions") or [])
     return polyline, time_sec, dist_m

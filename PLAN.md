@@ -175,6 +175,10 @@ sequenceDiagram
 - 공통 헬퍼: 노드 구성(`prepare_optimize_nodes`, `prepare_replan_nodes`), `run_with_rest_core`, GH 행렬, TSP 순서, 휴게 삽입, `optimized_route` DB 저장·`route_version`.
 - GH 행렬 503 fail-fast·replan `optimized_route`/`route_version` 반영(eb7bd91, CHANGELOG). 다차량 VRP 없음.
 
+#### 3.4.3 운행 검증 (replan 전)
+
+법정 연속 운전(7200초) 준수는 **사전 경로(optimize, 7200초 초과 구간 휴게 삽입)** 와 **실측·재계획(replan, 6000초 `needs_replan` 트리거 + 위치·누적 교차검증)** 으로 나눈다. 6000~7200초 단일 leg는 optimize에서 **의도적으로 휴게 미삽입**하며, replan·GPS 검증으로 메운다 — **H3-D 확정 (2026-06-14)**. MVP(세션 바인딩·누적 운전·M3 교차검증)·운영 권장(corridor 이탈·로그 공백·휴게 체류)·후속(TBD) 범위는 [ARCHITECTURE.md §3.4](ARCHITECTURE.md#34-운행-검증-replan-전)에 정리(구현 별도 마일스톤).
+
 | 위치 로그 | `[TBD]` 엔드포인트·주기 — [SCHEMA.md](SCHEMA.md) 및 기존 `location_logs` API와 정합 |
 
 - **클라이언트 계약의 중심은 `route[]` 순서와 좌표**; `polyline`은 경로 시각화·턴 매칭에 활용 (자체 내비 확장 시 역할 재정의 가능 — `[TBD]`, [README.md](README.md)와 교차 검증).
@@ -441,7 +445,7 @@ flowchart TB
 | 티어 | ID | 제목 |
 |------|-----|------|
 | **P0** | H2 | polyline 실패 시 휴게 삽입 스킵 |
-| **P0** | H3 | 6000–7200초 단일 구간 휴게 갭 |
+| **P0** | H3 | optimize 7200 / replan 6000 — 운행 검증 정책 |
 | **P1** | M2 | replan 시간창 기준 |
 | **P1** | M3 | `current_drive_sec` 이중 출처 |
 | **P1** | M4 | `estimated_duration_min` 불일치 |

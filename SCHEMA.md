@@ -180,6 +180,7 @@
 > **POST `/location-logs/` 응답 전용 계산 필드** (DB 컬럼 아님):
 > - `accumulated_drive_sec`: `created_at` 기준 누적 연속 운전시간(초). `resting` 15분↑ 시 리셋
 > - `needs_replan`: `accumulated_drive_sec >= REST_PLAN_SEC(6000)` 이면 `true` → 앱이 `POST /optimize/replan` 자동 호출
+> - **운행 검증:** 위 필드는 replan 전 교차검증·트리거에 사용 — `current_drive_sec`(replan 요청) vs `accumulated_drive_sec` 권위·허용 오차는 [ARCHITECTURE.md §3.4](ARCHITECTURE.md#34-운행-검증-replan-전)·[BUGREPORT M3](BUGREPORT.md#m3--current_drive_sec-이중-출처) `[TBD]` (breaking 없음)
 
 ---
 
@@ -366,6 +367,7 @@ restricted_zones (독립 — VRP 최적화 시 경로 제약)
 
 - GraphHopper N×N 행렬 실패 시 **503 fail-fast** (H1) — **`with_rest`·replan** (basic은 행렬 미사용).
 - `POST /optimize/replan`은 **`with_rest` 계열**로 동작하며, 요청에 `optimize_mode` 필드는 없다.
+- replan `current_drive_sec` vs `location_logs` 응답 `accumulated_drive_sec` 교차검증 — [ARCHITECTURE.md §3.4](ARCHITECTURE.md#34-운행-검증-replan-전).
 
 응답 `OptimizeResponse`: `trip_id`, `route[]`, `total_distance_km`, `estimated_duration_min`, `rest_stops_count`.
 

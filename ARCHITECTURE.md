@@ -9,6 +9,7 @@
 1. [레이어·역할](#1-레이어역할)
 2. [파이프라인 (Strategy)](#2-파이프라인-strategy)
 3. [상태 전이 (Trip / route)](#3-상태-전이-trip--route)
+   - [3.4 운행 검증 (replan 전)](#34-운행-검증-replan-전)
 4. [패턴](#4-패턴)
 5. [GraphHopper 실패 정책](#5-graphhopper-실패-정책)
 6. [리팩터링 로드맵](#6-리팩터링-로드맵)
@@ -126,7 +127,82 @@ with_rest와 **동일 GH 단계**(matrix → TSP → geometry → rest). 노드 
 - 서버가 `accumulated_drive_sec` 계산 (`REST_PLAN_SEC` = 6000).
 - `needs_replan=true`이면 앱이 `POST /optimize/replan` 호출 (resting 상태면 억제).
 
-**M3** (서버 주도 replan vs 앱 폴링): `[TBD]` — 현재는 **앱 트리거 권장** (응답 필드 계약 유지).
+**M3** (서버 주도 replan vs 앱 폴링): `[TBD]` — 현재는 **앱 트리거 권장** (응답 필드 계약 유지). 교차검증·권위 규칙은 §3.4.
+
+### 3.4 운행 검증 (replan 전)
+
+**목적:** 운행 중 법정 연속 운전 한도(7200초) 준수를 **사전 계획(optimize)** 과 **실측·재계획(replan)** 으로 나누어 달성한다. GPS·위치 로그로 앱·서버 간 누적 운전시간을 교차검증하고, 로그 공백·경로 이탈 등 **몰래 추가 운전** 징후를 탐지한다.
+
+#### 데이터 소스
+
+| 소스 | 필드·역할 |
+|------|-----------|
+| **`trips`** | `trip_id` — 로그·replan·세션 **귀속** (기사·Trip 바인딩) |
+| **`location_logs`** | GPS(`latitude`/`longitude`), `state`(`driving`/`resting`), `recorded_at`/`created_at` → 서버 `accumulated_drive_sec`, `needs_replan` |
+| **`POST /optimize/replan` 요청** | `current_lat`/`lon`, `current_drive_sec`, `remaining_waypoints`, `is_emergency` |
+| **`trips.optimized_route`** | 계획 `route[]` — corridor 이탈·휴게소 체류 판정 기준 |
+
+#### optimize vs replan 트리거 정책 (확정: H3-D, 2026-06-14)
+
+| 단계 | 임계 | 동작 |
+|------|------|------|
+| **`optimize` (`with_rest`)** | **7200초(2h)** | 연속 운전 **7200초 초과** 구간에만 **사전** 휴게소 삽입. 단일 leg가 6000~7200초인 경우 **의도적으로 미삽입** (버그 아님). |
+| **`location_logs` / replan 검토** | **6000초** | `needs_replan=true` — **검토·replan 트리거**만. optimize 강제 삽입 아님. |
+| **`replan`** | 누적·7200 임박 | 현재 위치·누적 운전·마지막 휴식 검증 후, 휴식 필요 시 **인접 휴게소를 경로 선두**에 삽입 (`insert_rest_stops`, `initial_drive_sec=current_drive_sec`). |
+
+> **6000(선제) vs 7200(법정):** 선제 알림·replan은 6000, 사전 경로 휴게 삽입 상한은 7200. 6000~7200 단일 구간 갭은 **replan·운행 검증**으로 메운다 — [BUGREPORT H3](BUGREPORT.md#h3--optimize-7200--replan-6000--휴게-삽입운행-검증-정책).
+
+#### 검증 단계 (replan 호출 전·중)
+
+```mermaid
+flowchart TD
+  A[GPS 수집 · POST /location-logs/] --> B{trip_id·세션 바인딩}
+  B -->|유효| C[accumulated_drive_sec 계산]
+  C --> D{needs_replan ≥6000?}
+  D -->|yes| E[앱: POST /optimize/replan]
+  D -->|no| F[계속 모니터링]
+  E --> G[current_drive_sec vs 서버 교차검증 M3]
+  G --> H[마지막 법정 휴식 이후 구간만 누적]
+  H --> I{휴식 필요?}
+  I -->|yes| J[인접 휴게소 경로 선두 삽입]
+  I -->|no| K[잔여 구간 TSP·경로 갱신]
+  J --> K
+  K --> L[optimized_route·route_version persist]
+```
+
+번호 순서 요약:
+
+1. **세션 바인딩** — `location_logs.trip_id`·기사 세션이 활성 Trip과 일치하는지 확인.
+2. **GPS 누적 연속 운전** — `location_logs` → `accumulated_drive_sec` (`driving` 구간 합산, `resting` 15분↑ 리셋).
+3. **replan 트리거** — `needs_replan`(6000) 또는 7200 임박·비상(`is_emergency`) 시 replan.
+4. **교차검증 (M3)** — replan `current_drive_sec`(앱) vs 서버 `accumulated_drive_sec`; 불일치 시 권위·허용 오차 규칙 적용 `[TBD]`.
+5. **마지막 휴식 이후 구간** — 법정 휴식/휴게 완료 시점 이후만 누적에 포함 **(목표; 현재 구현은 `resting` 리셋 위주 — 휴게소 체류·좌표 반경 연동 `[TBD]`)**.
+6. **replan 휴게 삽입** — 검증 통과 후 휴식 필요 시 인접 휴게소를 **경로 선두**에 삽입.
+
+#### 범위 티어 (MVP · 권장 · TBD)
+
+| 티어 | 항목 | 비고 |
+|------|------|------|
+| **필수 (MVP)** | trip_id·기사·세션 바인딩 | 로그가 올바른 Trip에 귀속 |
+| **필수 (MVP)** | GPS 누적 연속 운전 (`location_logs` → `accumulated_drive_sec`) | |
+| **필수 (MVP)** | replan `current_drive_sec` vs 서버 교차검증 | [M3](BUGREPORT.md#m3--current_drive_sec-이중-출처) |
+| **필수 (MVP)** | 마지막 법정 휴식/휴게 이후 구간만 누적 | 목표; 현재 gap — §위 5번 |
+| **필수 (MVP)** | replan 트리거: `needs_replan`(6000), 7200 임박 | §3.3 |
+| **권장 (운영)** | 경로 corridor 이탈 | 계획 `route` 대비 GPS |
+| **권장 (운영)** | 로그 공백·앱 종료 구간 | 몰래 운전 의심, 관제 알림 |
+| **권장 (운영)** | 휴게소 체류 (좌표 반경 + 최소 시간) | 휴게 “완료” 판정 |
+| **권장 (운영)** | 속도·점프 이상치 | GPS spoof/오류 필터 |
+| **후속 (TBD)** | mock location / 다중 단말 | |
+| **후속 (TBD)** | 관제·법무 연동 (처벌 정책) | |
+| **후속 (TBD)** | odometer CAN 연동 | |
+
+#### 관련 이슈
+
+| ID | 관계 |
+|----|------|
+| **H3** | optimize 7200 / replan 6000 **분리 정책** — 6000~7200 단일 leg 미삽입은 의도 |
+| **M3** | `current_drive_sec` vs `accumulated_drive_sec` **교차검증·권위** |
+| **M2** | replan 시간창 `reference_departure_at` — 운행 중 잔여 경유지 창 해석 |
 
 ---
 
@@ -269,4 +345,4 @@ with_rest·replan **공통** matrix→TSP→geometry→rest→totals 오케스�
 
 ---
 
-*최종 갱신: 2026-06-14 — Phase 1(`0ff3435`), Phase 2 `prepare_replan_nodes`·`run_with_rest_core` 구현 완료*
+*최종 갱신: 2026-06-14 — H3-D 정책 확정(§3.4); Phase 1(`0ff3435`), Phase 2 `prepare_replan_nodes`·`run_with_rest_core` 구현 완료*

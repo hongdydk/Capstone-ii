@@ -20,7 +20,7 @@ Oracle Cloud + Docker 배포 환경에서 **운영 안정화**와 **알고리즘
 
 | 티어 | ID | 제목 |
 |------|-----|------|
-| **P0** | H3 | 6000–7200초 단일 구간 휴게 갭 |
+| **P0** | H3 | optimize 7200 / replan 6000 — 운행 검증 정책 |
 | **P1** | M2 | replan 시간창 기준 |
 | **P1** | M3 | `current_drive_sec` 이중 출처 |
 | **P1** | M4 | `estimated_duration_min` 불일치 |
@@ -40,42 +40,44 @@ Oracle Cloud + Docker 배포 환경에서 **운영 안정화**와 **알고리즘
 
 ## P0 — 배포 운영 즉시 리스크
 
-### H3 · 6000–7200초 단일 구간 휴게 갭
+### H3 · optimize 7200 / replan 6000 — 휴게 삽입·운행 검증 정책
 
 | | |
 |---|---|
 | **ID** | H3 |
-| **제목** | 6000–7200초 단일 구간 휴게 갭 |
+| **제목** | optimize 7200 / replan 6000 — 휴게 삽입·운행 검증 정책 |
 | **우선순위** | P0 |
 
-**문제**  
-`REST_PLAN_SEC=6000`(선제), `MAX_DRIVE_SEC=7200`(법정 상한). `initial_drive_sec + route_time_sec ≤ 7200`이면 휴게 삽입을 생략하는 조기 반환이 있다. 누적이 이미 6000을 넘었는데 남은 단일 구간이 1200초 이하인 경우 등 **선제·법정 사이 갭**에서 휴게가 빠질 수 있다.
+**문제 (재정의)**  
+`REST_PLAN_SEC=6000`(선제·replan 트리거), `MAX_DRIVE_SEC=7200`(법정 상한). `optimize(with_rest)`는 **연속 운전 7200초 초과 구간만** 사전 휴게 삽입하며, 6000~7200 단일 leg는 **의도적으로 미삽입**한다. 이는 버그가 아니라 **optimize vs replan 역할 분리** 정책이다. 6000~7200 구간·실운행 갭은 **replan + 운행 검증**(GPS 누적·교차검증)으로 메운다.
 
 **배포 영향 (OCI/Docker)**  
-장거리 단일 고속 구간(휴게소 없는 polyline 구간)에서 **실운행 시 2시간 연속 운전** 위험이 있다. 앱·`location_logs`의 `needs_replan`은 6000 기준이라 서버 삽입과 어긋날 수 있다.
+정책은 **D**로 확정. 운행 검증 MVP(세션·GPS 누적·M3 교차검증·마지막 휴식 이후 누적 등) **미구현** 시 replan 신뢰도가 낮아진다 — 별도 마일스톤.
 
 **관련 파일/위치**  
 `backend/app/services/rest_stop_inserter.py` — `REST_PLAN_SEC`, `MAX_DRIVE_SEC`, 조기 반환 로직  
-`backend/app/api/optimize.py` — `initial_drive_sec` 전달
+`backend/app/api/optimize.py` — `initial_drive_sec` / replan `current_drive_sec`  
+[ARCHITECTURE.md §3.4 운행 검증](ARCHITECTURE.md#34-운행-검증-replan-전)
 
 **선택지**  
-- **A.** `initial_drive_sec ≥ REST_PLAN_SEC`이면 단일 구간이라도 **강제 삽입**  
-- **B.** 구간을 가상 분할해 greedy 삽입  
-- **C.** 현행(7200 이하 단일 구간 스킵) + 앱 replan에 의존
+- **A.** `initial_drive_sec ≥ REST_PLAN_SEC`이면 단일 구간이라도 **강제 삽입** (1h40m optimize 선제) — **기각** (replan·운행 검증과 이중·불일치)  
+- **B.** 구간을 가상 분할해 greedy 삽입 — **보류**  
+- **C.** **7200 optimize 선제 삽입 + 6000 replan 트리거** — 현행 `rest_stop_inserter`와 일치; **D에 포함**  
+- **D.** **C + 운행 검증 전체** — §3.4 MVP(세션·GPS 누적·M3 교차검증·마지막 휴식 이후 누적) + 권장(corridor·로그 공백·휴게 체류) — **확정 (2026-06-14)**
 
-**권장 (확정 아님)**  
-**A** — 법정 준수와 `location_logs` 트리거 정합
+**확정 (2026-06-14)**  
+**D** — optimize(with_rest)는 연속 운전 **7200초 초과**만 사전 휴게; 6000~7200 단일 leg 미삽입(의도). **6000**은 replan/`needs_replan` **검토 트리거**만(optimize 강제 삽입 아님). [ARCHITECTURE §3.4](ARCHITECTURE.md#34-운행-검증-replan-전) 운행 검증 MVP·권장 스택 구현은 별도 마일스톤. **A 기각** 유지.
 
 **breaking**  
-**N** (동일 API, route[]에 휴게 노드 추가 가능)
+**N** (동일 API; route[]·검증 메타 additive 가능 — M3)
 
 **선행 의존**  
-—
+[M3](#m3--current_drive_sec-이중-출처) — replan 교차검증 권위
 
-**결정 필요**  
-6000(선제)과 7200(법정 상한) 사이 단일 구간에서 휴게 삽입 정책을 어떻게 할 것인가?
+**결정 (2026-06-14)**  
+6000(replan)·7200(optimize) 분리 + §3.4 운행 검증 MVP·권장 범위 — **D** 확정. A 기각.
 
-**상태:** `[ ]` 미결정
+**상태:** `[x] 결정: **D** · [ ] 구현` — optimize 7200/replan 6000 정책 확정; §3.4 MVP·권장 미구현 ([ARCHITECTURE §3.4](ARCHITECTURE.md#34-운행-검증-replan-전))
 
 ---
 
@@ -129,14 +131,15 @@ replan의 시간창 기준시각은 `reference_departure_at`만 쓸 것인가, t
 | **우선순위** | P1 |
 
 **문제**  
-replan 요청의 `current_drive_sec`(앱 전송)과 `location_logs` 기반 `_calc_accumulated_drive_sec`(서버 계산)이 **병행**한다. 값이 다르면 휴게 삽입·`needs_replan` 판단이 어긋난다.
+replan 요청의 `current_drive_sec`(앱 전송)과 `location_logs` 기반 `_calc_accumulated_drive_sec`(서버 계산)이 **병행**한다. 값이 다르면 휴게 삽입·`needs_replan` 판단이 어긋난다. [ARCHITECTURE §3.4 운행 검증](ARCHITECTURE.md#34-운행-검증-replan-전) MVP 항목.
 
 **배포 영향 (OCI/Docker)**  
-기사 앱·백엔드가 서로 다른 누적 시간으로 replan을 호출·판단할 수 있다.
+기사 앱·백엔드가 서로 다른 누적 시간으로 replan을 호출·판단할 수 있다. GPS 공백·몰래 추가 운전 탐지와 연동 필요.
 
 **관련 파일/위치**  
 `backend/app/api/optimize.py` — replan, `_calc_accumulated_drive_sec`  
-`backend/app/schemas/optimize.py` — `current_drive_sec` 필드
+`backend/app/schemas/optimize.py` — `current_drive_sec` 필드  
+[ARCHITECTURE.md §3.4](ARCHITECTURE.md#34-운행-검증-replan-전) · [H3](#h3--optimize-7200--replan-6000--휴게-삽입운행-검증-정책)
 
 **선택지**  
 - **A.** 서버 계산값 **권위** (요청값은 힌트)  
@@ -633,7 +636,7 @@ optimize/replan 응답 `route[]`에 `cargo_id`/`cargo_role`을 포함할 것인�
 
 P0부터 순차 확정하는 것을 권장합니다. 선행 의존이 있는 항목은 아래 순서 내에서 먼저 결정하세요.
 
-1. **H3** — 6000–7200초 휴게 갭 (법정 준수, L4 선행)
+1. **H3** — optimize 7200 / replan 6000·운행 검증 (법정 준수, L4 선행)
 2. **L2** — `GH_BASE` 환경 변수 (OCI 네트워크 안정)
 3. **M3** — `current_drive_sec` 권위
 4. **M2** — replan 시간창 기준
